@@ -1,3 +1,7 @@
+
+#ifndef __EFI_H__
+#define __EFI_H__
+
 #include "types.h"
 
 #define EFI_LOADED_IMAGE_PROTOCOL_GUID \
@@ -22,6 +26,7 @@ typedef efi_status_t Status;
 static const efi_status_t EFI_SUCCESS = 0;
 
 static const uint32_t EFI_OPEN_PROTOCOL_BY_HANDLE_PROTOCOL = 0x00000001;
+static const uint32_t EFI_OPEN_PROTOCOL_GET_PROTOCOL = 0x00000002;
 
 static const uint64_t EFI_FILE_MODE_READ = 0x0000000000000001;
 
@@ -198,15 +203,15 @@ struct BootTable
 	void (*unused12)();
 
 	// Protocol Handler Services
-	void (*unused13)();
-	void (*unused14)();
-	void (*unused15)();
-	void (*unused16)();
+	void (*unused13)();//install protocol
+	void (*unused14)();//reinstall protocol
+	void (*unused15)();//unistall protrocol
+	Status (*handle_protocol)(Handle handle, struct GUID* protocol_guid, void** interface);//handle protocol
 	void *reserved;
-	void (*unused17)();
-	void (*unused18)();
-	void (*unused19)();
-	void (*unused20)();
+	void (*unused17)();//register protocol notify
+	void (*unused18)();//locate handle
+	void (*unused19)();//locate device path
+	void (*unused20)();//install configuration table
 
 	// Image Services
 	efi_status (*image_load)(bool boot_policy,
@@ -253,8 +258,10 @@ struct BootTable
 	// Library Services
 	efi_status_t (*protocols_per_handle)(
 		Handle, struct GUID ***, efi_uint_t *);
-	void (*unused35)();
-	void (*unused36)();
+	void (*unused35)();//locate handle buffer
+	Status (*locate_protocol)(struct GUID* protocol_guid, 
+			void* registration,
+			void** interface);//locate protocol
 	void (*unused37)();
 	void (*unused38)();
 
@@ -301,4 +308,4 @@ struct efi_simple_text_output_protocol {
 	void *unused8;
 };
 
-
+#endif

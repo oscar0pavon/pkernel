@@ -1,6 +1,7 @@
 #include "efi.h"
 #include "config.h"
 #include "types.h"
+#include "gop.h"
 
 struct SystemTable* system_table;
 Handle* bootloader_handle;
@@ -135,18 +136,6 @@ efi_status_t read_fixed(
 	return status;
 }
 
-void print_entries(){
-	for(uint8_t i = 0; i < number_of_entries; i++){
-		system_table->out->output_string(system_table->out, entries[i].entry_name);
-		if(i == entry_selected){
-			system_table->out->output_string(system_table->out, u"*");
-		}
-		system_table->out->output_string(system_table->out, u"\n\r");
-	}
-}
-
-
-
 
 void chainload_linux_efi_stub(){
 	efi_status_t status;
@@ -263,54 +252,7 @@ void load_kernel_file(){
 }
 
 
-void boot_entry(){
-	
-	selected_kernel_name = entries[entry_selected].kernel_name;
-	selected_kernel_parameters = entries[entry_selected].kernel_parameters;
-		
-	load_kernel_file();
-	chainload_linux_efi_stub();
 
-}
-
-void enter_in_menu_loop(){
-	
-	system_table->out->clear_screen(system_table->out);
-
-	print_entries();
-
-	InputKey key_pressed;
-	while (1) {
-	
-	efi_status status;
-	status = system_table->input->read_key_stroke(system_table->input, &key_pressed);
-
-	if(status == EFI_SUCCESS){
-
-		if(key_pressed.scan_code == KEY_CODE_UP){
-			if(entry_selected > 0){
-				entry_selected--;
-			}
-		}
-
-		if(key_pressed.scan_code == KEY_CODE_DOWN){
-
-			if(entry_selected < number_of_entries-1){//-1 because start at 0
-				entry_selected++;
-			}	
-		}
-	
-		system_table->out->clear_screen(system_table->out);
-		print_entries();
-	
-		if(key_pressed.scan_code == KEY_CODE_RIGHT){
-			system_table->out->clear_screen(system_table->out);
-			boot_entry();		
-		}
-	}
-
-	}
-}
 
 Status efi_main(
 	Handle in_efi_handle, struct SystemTable *in_system_table)
@@ -323,6 +265,49 @@ Status efi_main(
 
 	log(u"Pavon Kernel");
 
+
+	struct GUID loaded_image_guid = EFI_LOADED_IMAGE_PROTOCOL_GUID;
+	
+	Status loaded_image_status = system_table->boot_table->open_protocol(efi_handle,
+			&loaded_image_guid,
+			(void **)&bootloader_image,
+			efi_handle,
+			0,
+			EFI_OPEN_PROTOCOL_GET_PROTOCOL)	;
+
+	if(loaded_image_status == EFI_SUCCESS){
+		log(u"got loaded image");
+	}
+	
+	struct GUID gop_guid = EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID;
+	struct EfiGraphicsOutputProtocol* graphics_output_protocol;	
+	
+
+	Status status = system_table->boot_table->open_protocol(efi_handle,
+			&gop_guid,
+			(void **)&graphics_output_protocol,
+			efi_handle,
+			0,
+			EFI_OPEN_PROTOCOL_BY_HANDLE_PROTOCOL)	;
+
+	if(status != EFI_SUCCESS){
+		log(u"Can't get Graphics Output Protocol with open_protocol");
+	}
+
+	status = system_table->boot_table->handle_protocol(efi_handle, &gop_guid, 
+			(void**)&graphics_output_protocol);
+
+	if(status != EFI_SUCCESS){
+		log(u"Can't get Graphics Output Protocol with handle_protocol");
+	}
+
+	status = system_table->boot_table->locate_protocol(&gop_guid,
+			(void*)0, (void**)&graphics_output_protocol);
+
+	if(status != EFI_SUCCESS){
+		log(u"Can't get Graphics Output Protocol with locate_protocol");
+	}
+	
 	while(1){
 
 	}

@@ -20,4 +20,6 @@ typedef struct {
 	uint16_t *kernel_parameters;
 }BootLoaderEntry;
 
+typedef uint64_t EfiPhysicalAddress;
+
 #endif
