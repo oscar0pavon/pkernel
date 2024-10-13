@@ -17,6 +17,9 @@ pkernel: main.o
 
 -include $(SRCS:.c=.d)
 
+install:
+	cp /root/virtual_machine/disk/pkernel /boot/pkernel
+
 .PHONY: clean all default install
 
 all: pkernel 

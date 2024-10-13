@@ -280,7 +280,6 @@ Status efi_main(
 	}
 	
 	struct GUID gop_guid = EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID;
-	struct EfiGraphicsOutputProtocol* graphics_output_protocol;	
 	
 
 	Status status = system_table->boot_table->open_protocol(efi_handle,
@@ -308,6 +307,38 @@ Status efi_main(
 		log(u"Can't get Graphics Output Protocol with locate_protocol");
 	}
 	
+
+	//get the current mode
+
+	EfiGraphicsOutputModeInformation *info;
+	uint64_t size_of_info, number_of_modes, native_mode;
+	if(graphics_output_protocol->mode == NULL){
+		log(u"Graphics Output Protocol Mode is NULL");
+		status = graphics_output_protocol->query_mode(graphics_output_protocol,
+				0 , &size_of_info, &info);
+	}else{
+		status = graphics_output_protocol->query_mode(graphics_output_protocol,
+				graphics_output_protocol->mode->mode , &size_of_info, &info);
+	}
+
+	if(status != EFI_SUCCESS){
+		log(u"Can't query mode");
+	}
+	
+	native_mode = graphics_output_protocol->mode->mode;
+	number_of_modes = graphics_output_protocol->mode->max_mode;
+
+	int max_x = graphics_output_protocol->mode->mode_info->horizontal_resolution;
+	int max_y = graphics_output_protocol->mode->mode_info->vertical_resolution;
+
+	uint32_t red_pixel = 0x7800;
+	
+	for(int y = 100; y < 200; y++){
+		for(int x = 100; x < 200; x++){
+			plot_pixel(x, y, red_pixel);
+		}
+	}
+
 	while(1){
 
 	}

@@ -11,6 +11,8 @@ typedef unsigned char uint8_t ;
 #define true 1
 #define false 0
 
+#define NULL (void*)0
+
 #define __UINT64_C(c)	c ## UL
 #define UINT64_MAX		(__UINT64_C(18446744073709551615))
 

@@ -74,3 +74,11 @@ typedef struct EfiGraphicsOutputProtocol{
 
 	EfiGraphicsOutputProtocolMode *mode;
 } EfiGraphicsOutputProtocol;
+
+struct EfiGraphicsOutputProtocol* graphics_output_protocol;	
+
+static inline void plot_pixel(int x, int y, uint32_t pixel){
+*((uint32_t*)(graphics_output_protocol->mode->frame_buffer_base_address 
+			+ 4 * graphics_output_protocol->mode->mode_info->pixel_per_scan_line
+			* y + 4 * x)) = pixel;
+}
