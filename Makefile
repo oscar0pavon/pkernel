@@ -12,14 +12,11 @@ default: all
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-BOOTX64.EFI: main.o
-	$(LD) $(LDFLAGS) $< -out:../disk/EFI/BOOT/$@ -verbose
+pkernel: main.o
+	$(LD) $(LDFLAGS) $< -out:/root/virtual_machine/disk/$@ -verbose
 
 -include $(SRCS:.c=.d)
 
 .PHONY: clean all default install
 
-install:
-	cp /root/boot/disk/EFI/BOOT/BOOTX64.EFI /boot/EFI/PAVON/pavonx64.efi
-
-all: BOOTX64.EFI
+all: pkernel 

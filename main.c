@@ -4,6 +4,7 @@
 
 struct SystemTable* system_table;
 Handle* bootloader_handle;
+Handle* efi_handle;
 
 struct FileProtocol* opened_kernel_file;
 
@@ -311,31 +312,20 @@ void enter_in_menu_loop(){
 	}
 }
 
-efi_status_t efi_main(
-	Handle in_bootloader_handle, struct SystemTable *in_system_table)
+Status efi_main(
+	Handle in_efi_handle, struct SystemTable *in_system_table)
 {
 
 	system_table = in_system_table;
 
-	bootloader_handle = in_bootloader_handle;
+	efi_handle = in_efi_handle;
 	
-	number_of_entries = sizeof(entries)/sizeof(entries[0]);
 
-	entry_selected = default_entry;
-	selected_kernel_name = entries[entry_selected].kernel_name;
-	selected_kernel_parameters = entries[entry_selected].kernel_parameters;
+	log(u"Pavon Kernel");
 
+	while(1){
 
-	InputKey key_pressed;
-	
-	system_table->input->read_key_stroke(system_table->input, &key_pressed);
-
-	if(key_pressed.scan_code == KEY_CODE_LEFT || show_menu == true){
-		enter_in_menu_loop();
 	}
-
-	load_kernel_file();
-	chainload_linux_efi_stub();
 
 	return 0;
 }

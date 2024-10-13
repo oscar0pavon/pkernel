@@ -17,6 +17,8 @@ typedef uint64_t efi_status_t;
 
 typedef efi_status_t efi_status;
 
+typedef efi_status_t Status;
+
 static const efi_status_t EFI_SUCCESS = 0;
 
 static const uint32_t EFI_OPEN_PROTOCOL_BY_HANDLE_PROTOCOL = 0x00000001;
