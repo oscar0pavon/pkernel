@@ -65,8 +65,9 @@ static void exit_boot_services(){
 
 	}
 
-	status = system_table->boot_table->exit_boot_services(bootloader_handle, 
+	status = system_table->boot_table->exit_boot_services(efi_handle, 
 			mmap_key);
+
 	if(status != EFI_SUCCESS){
 		log(u"ERROR boot service not closed");
 		return;
@@ -332,7 +333,11 @@ Status efi_main(
 	int max_y = graphics_output_protocol->mode->mode_info->vertical_resolution;
 
 	uint32_t red_pixel = 0x7800;
-	
+
+
+	log(u"Exiting....");
+	exit_boot_services();
+
 	for(int y = 100; y < 200; y++){
 		for(int x = 100; x < 200; x++){
 			plot_pixel(x, y, red_pixel);
