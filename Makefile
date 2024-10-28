@@ -20,6 +20,10 @@ pkernel: main.o
 install:
 	cp /root/virtual_machine/disk/pkernel /boot/pkernel
 
+clean:
+	rm *.o
+	rm *.d
+
 .PHONY: clean all default install
 
 all: pkernel 
