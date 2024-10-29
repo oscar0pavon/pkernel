@@ -3,6 +3,7 @@
 #include "gop.h"
 
 #include "console.h"
+#include <stdint.h>
 
 struct SystemTable* system_table;
 Handle* bootloader_handle;
@@ -329,30 +330,27 @@ Status efi_main(
 	native_mode = graphics_output_protocol->mode->mode;
 	number_of_modes = graphics_output_protocol->mode->max_mode;
 
-	int max_x = graphics_output_protocol->mode->mode_info->horizontal_resolution;
-	int max_y = graphics_output_protocol->mode->mode_info->vertical_resolution;
-
-	uint32_t red_pixel = 0x7800;
+	console_horizonal = graphics_output_protocol->mode->mode_info->horizontal_resolution;
+	console_vertical = graphics_output_protocol->mode->mode_info->vertical_resolution;
 
 
 	log(u"Exiting....");
 	system_table->out->clear_screen(system_table->out);	
 	exit_boot_services();
 
+//#########################################################
+//#########################################################
+//################ Full control ###########################
+//#########################################################
 
 
+	clear();
 
-	print("hello");
-	print("hello2");
-	print("hello3");
+	print("Horizontal Resolution:");
+	print_uint(console_horizonal);
+	print("Vertical Resolution:");
+	print_uint(console_vertical);
 
-	print_uint(3456);
-
-	for(int y = 100; y < 200; y++){
-		for(int x = 100; x < 200; x++){
-			plot_pixel(x, y, red_pixel);
-		}
-	}
 
 	while(1){
 
