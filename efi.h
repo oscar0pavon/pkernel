@@ -67,6 +67,10 @@ struct InputProtocol{
 			InputKey* key);
 	void (*wait_for_key)();//boot_services.wait_for_event()
 };
+typedef struct {
+	GUID vendor_guid;
+	void* vendor_table;
+}EfiConfigurationTable;
 
 struct SystemTable{
 	struct TableHeader header;
@@ -80,8 +84,8 @@ struct SystemTable{
 	void *unused7;//standard error
 	void *unused8;//runtime services
 	struct BootTable* boot_table;//boot services
-	uint64_t unused10;//number of table entries
-	void *unused11;//configuration table
+	uint64_t number_of_table_entries;
+	EfiConfigurationTable* configuration_tables;//configuration table
 };
 
 
