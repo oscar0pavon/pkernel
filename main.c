@@ -1,9 +1,7 @@
 #include "efi.h"
-#include "config.h"
 #include "types.h"
 #include "gop.h"
-
-#include "font.h"
+#include "library.h"
 
 struct SystemTable* system_table;
 Handle* bootloader_handle;
@@ -28,6 +26,7 @@ uint16_t* selected_kernel_parameters;
 
 uint8_t number_of_entries = 0;
 
+EfiGraphicsOutputProtocol* graphics_output_protocol;	
 
 void log(uint16_t* text){
 	
@@ -254,20 +253,6 @@ void load_kernel_file(){
 
 }
 
-void draw_character(unsigned char character, int x, int y,
-		int foreground, int background)
-{
-	int cx,cy;
-	int mask[8]={128,64,32,16,8,4,2,1};
-	unsigned char *glyph=font+(int)character*16;
-
-	for(cy=0;cy<16;cy++){
-		for(cx=0;cx<8;cx++){
-			plot_pixel(x+cx, y+cy, glyph[cy]&mask[cx]?foreground:background);
-		}
-	}
-}
-
 
 Status efi_main(
 	Handle in_efi_handle, struct SystemTable *in_system_table)
@@ -354,10 +339,9 @@ Status efi_main(
 	exit_boot_services();
 
 
-	uint32_t black = 0x00000000;
-	uint32_t white = 0xFFFFFFFF;
 
-draw_character('H', 0, 0, white, black);
+
+	print("hello");
 
 	for(int y = 100; y < 200; y++){
 		for(int x = 100; x < 200; x++){
