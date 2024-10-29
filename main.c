@@ -346,6 +346,8 @@ Status efi_main(
 	print("hello2");
 	print("hello3");
 
+	print_uint(3456);
+
 	for(int y = 100; y < 200; y++){
 		for(int x = 100; x < 200; x++){
 			plot_pixel(x, y, red_pixel);
