@@ -1,7 +1,8 @@
 #include "efi.h"
 #include "types.h"
 #include "gop.h"
-#include "library.h"
+
+#include "console.h"
 
 struct SystemTable* system_table;
 Handle* bootloader_handle;
@@ -342,6 +343,8 @@ Status efi_main(
 
 
 	print("hello");
+	print("hello2");
+	print("hello3");
 
 	for(int y = 100; y < 200; y++){
 		for(int x = 100; x < 200; x++){

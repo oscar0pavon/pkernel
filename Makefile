@@ -5,28 +5,26 @@ CFLAGS := -ffreestanding -MMD -mno-red-zone -std=c11 \
 	-target x86_64-unknown-windows
 LDFLAGS := -flavor link -subsystem:efi_application -entry:efi_main
 
-SRCS := framebuffer.c library.c main.c
+SRCS := $(wildcard *.c)
+OBJS := $(SRCS:c=o)
 
-all_objects := $(wildcard *.o)
+.PHONY: all clean install
 
-default: all
+all: pkernel
 
-objects: $(SRCS)
-	$(CC) $(CFLAGS) -c $^
+$(OBJS): %.o : %.c
+	$(CC) $(CFLAGS) -c $<
 
-pkernel: objects
-	$(LD) $(LDFLAGS) $(all_objects) -out:/root/virtual_machine/disk/pkernel #-verbose 
+
+pkernel: $(OBJS)
+	$(LD) $(LDFLAGS) ${OBJS} -out:/root/virtual_machine/disk/pkernel #-verbose 
 
 #-include $(SRCS:.c=.d)
 
 install:
 	cp /root/virtual_machine/disk/pkernel /boot/pkernel
 
-.PHONY: clean all default install
-
 clean:
 	rm *.o
 	rm *.d
 
-
-all: pkernel 
