@@ -10,12 +10,14 @@ int string_length(const char* string){
 }
 
 
-void print(const char* string){
-	
 const uint32_t black = 0x00000000;
 const uint32_t white = 0xFFFFFFFF;
-draw_character(string[0], 0, 0, white, black);
-// draw_character('u', 8, 0, white, black);
-// draw_character('c', 16, 0, white, black);
-// draw_character('k', 24, 0, white, black);
+
+void print(const char* string){
+ 
+ int char_count = string_length(string);
+ for(int i = 0; i < char_count ; i++){
+	draw_character(string[i], i*8, 0, white, black);
+ }
+
 }
