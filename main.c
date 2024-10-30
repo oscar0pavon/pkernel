@@ -256,6 +256,36 @@ void load_kernel_file(){
 }
 
 
+bool compare_efi_guid(EFI_GUID* guid1, EFI_GUID* guid2){
+	bool data1_ok = false;
+	bool data2_ok = false;
+	bool data3_ok = false;
+
+	if(guid1->data1 == guid2->data1){
+		data1_ok = true;
+	}else{
+		return false;
+	}
+	if(guid1->data2 == guid2->data2){
+		data2_ok = true;
+	}else{
+		return false;
+	}
+	if(guid1->data3 == guid2->data3){
+		data3_ok = true;
+	}else{
+		return false;
+	}
+
+	for(int i = 0; i<8;i++){
+		if(guid1->data4[i] != guid2->data4[i]){
+			return false;
+		}
+	}
+
+	return true;
+}
+
 Status efi_main(
 	Handle in_efi_handle, struct SystemTable *in_system_table)
 {
@@ -334,9 +364,23 @@ Status efi_main(
 	console_vertical = graphics_output_protocol->mode->mode_info->vertical_resolution;
 
 
+	//get ACPI 2.0 table
+
+	EFI_GUID acpi_guid = EFI_ACPI_20_TABLE_GUID;
+
+	for(int i = 0; i < system_table->number_of_table_entries; i++){
+		EfiConfigurationTable* table = &system_table->configuration_tables[i];
+		
+		if(compare_efi_guid(&table->vendor_guid,&acpi_guid)){
+			log(u"Found ACPI 2.0 table");
+		}
+
+	}
+
 	log(u"Exiting....");
-	system_table->out->clear_screen(system_table->out);	
-	exit_boot_services();
+	
+	//system_table->out->clear_screen(system_table->out);	
+	//exit_boot_services();
 
 //#########################################################
 //#########################################################
@@ -344,12 +388,12 @@ Status efi_main(
 //#########################################################
 
 
-	clear();
-
-	print("Horizontal Resolution:");
-	print_uint(console_horizonal);
-	print("Vertical Resolution:");
-	print_uint(console_vertical);
+	// clear();
+	//
+	// print("Horizontal Resolution:");
+	// print_uint(console_horizonal);
+	// print("Vertical Resolution:");
+	// print_uint(console_vertical);
 
 
 	while(1){

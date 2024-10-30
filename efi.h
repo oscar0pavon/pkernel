@@ -8,6 +8,10 @@
 	{ 0x5b1b31a1, 0x9562, 0x11d2, \
 	  { 0x8e, 0x3f, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b } }
 
+#define EFI_ACPI_20_TABLE_GUID \
+	{0x8868e871,0xe4f1,0x11d3,\
+		{0xbc,0x22,0x00,0x80,0xc7,0x3c,0x88,0x81}}
+
 #define KEY_CODE_UP 0x01
 #define KEY_CODE_DOWN 0x02
 #define KEY_CODE_RIGHT 0x03
@@ -34,12 +38,12 @@ static const uint64_t EFI_FILE_READ_ONLY = 0x1;
 
 static const uint64_t MAX_BIT = 0x8000000000000000ULL;
 
-struct GUID{
+typedef struct GUID{
 	uint32_t data1;
 	uint16_t data2;
 	uint16_t data3;
 	uint8_t data4[8];
-};
+}EFI_GUID;
 
 struct TableHeader{
 	uint64_t signature;
@@ -68,7 +72,7 @@ struct InputProtocol{
 	void (*wait_for_key)();//boot_services.wait_for_event()
 };
 typedef struct {
-	GUID vendor_guid;
+	EFI_GUID vendor_guid;
 	void* vendor_table;
 }EfiConfigurationTable;
 
