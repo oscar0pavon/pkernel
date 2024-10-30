@@ -8,7 +8,6 @@
 
 #include <stdint.h>
 
-struct XSDP_t* XSDP;
 
 struct SystemTable* system_table;
 Handle* efi_handle;
@@ -203,6 +202,22 @@ Status efi_main(
 
 
 	//print(XSDP->signature);
+	struct XSDT_t* XSDT = (struct XSDT_t*)XSDP->XSDT_address;
+
+	if(acpi_compare_signature(XSDT->header.signature, "XSDT")){
+		print("is XSDT table");
+	}
+
+
+
+	uint32_t number_of_entries_XSDT = (XSDT->header.length - sizeof(struct ACPISystemDescriptorTableHeader))/8;
+
+	for(int i = 0; i < number_of_entries_XSDT; i++){
+		struct ACPISystemDescriptorTableHeader* header = (struct ACPISystemDescriptorTableHeader*)XSDT->entries[i];
+		if(acpi_compare_signature(header->signature, "FACP")){
+			print("Found FADT");
+		}
+	}
 
 	while(1){
 

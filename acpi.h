@@ -1,7 +1,7 @@
 
 //Advancded Configuration and Power Interface (ACPI)
 
-//eXtended System Descriptor Table (XSDP)
+//eXtended System Descriptor Pointer (XSDP)
 
 #ifndef _ACPI_H_
 #define _ACPI_H_
@@ -15,10 +15,12 @@ struct XSDP_t {
 	uint8_t revision;
 	uint32_t rsdt_address;
 	uint32_t length;
-	uint64_t xsdt_address;
+	uint64_t XSDT_address;//XSDT(eXtended System Description Table)
 	uint8_t extended_checksum;
 	uint8_t reserved[3];
 }__attribute__ ((packed));
+
+
 
 
 struct ACPISystemDescriptorTableHeader{
@@ -31,8 +33,13 @@ struct ACPISystemDescriptorTableHeader{
 	uint32_t OPEMRevision;
 	uint32_t creator_id;
 	uint32_t creator_revision;
-};
+}__attribute__ ((packed));
 
+
+struct XSDT_t {
+  struct ACPISystemDescriptorTableHeader header;
+  void ** entries;
+};
 
 typedef struct {
 	uint8_t address_space;
@@ -43,7 +50,7 @@ typedef struct {
 }GenericAddressStructure;
 
 //Fixed ACPI Desciption Table (FADT)
-struct FADT
+struct FADT_t
 {
     struct   ACPISystemDescriptorTableHeader header;
     uint32_t FirmwareCtrl;
@@ -111,6 +118,10 @@ struct FADT
     GenericAddressStructure X_GPE1Block;
 };
 
+extern struct FADT_t* FADT;
 
+extern struct XSDP_t* XSDP;
+
+bool acpi_compare_signature(char* signature1, char* signature2);
 
 #endif
