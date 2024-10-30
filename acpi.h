@@ -34,13 +34,13 @@ struct ACPISystemDescriptorTableHeader{
 };
 
 
-struct GenericAddressStructure{
+typedef struct {
 	uint8_t address_space;
 	uint8_t bit_width;
 	uint8_t bit_offset;
 	uint8_t access_size;
 	uint64_t address;
-};
+}GenericAddressStructure;
 
 //Fixed ACPI Desciption Table (FADT)
 struct FADT

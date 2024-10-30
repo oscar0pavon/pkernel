@@ -3,7 +3,12 @@
 #include "gop.h"
 
 #include "console.h"
+
+#include "acpi.h"
+
 #include <stdint.h>
+
+struct XSDP_t* XSDP;
 
 struct SystemTable* system_table;
 Handle* bootloader_handle;
@@ -373,14 +378,15 @@ Status efi_main(
 		
 		if(compare_efi_guid(&table->vendor_guid,&acpi_guid)){
 			log(u"Found ACPI 2.0 table");
+			XSDP = table->vendor_table;
 		}
 
 	}
 
 	log(u"Exiting....");
 	
-	//system_table->out->clear_screen(system_table->out);	
-	//exit_boot_services();
+	system_table->out->clear_screen(system_table->out);	
+	exit_boot_services();
 
 //#########################################################
 //#########################################################
@@ -388,13 +394,15 @@ Status efi_main(
 //#########################################################
 
 
-	// clear();
-	//
-	// print("Horizontal Resolution:");
-	// print_uint(console_horizonal);
-	// print("Vertical Resolution:");
-	// print_uint(console_vertical);
+	clear();
 
+	print("Horizontal Resolution:");
+	print_uint(console_horizonal);
+	print("Vertical Resolution:");
+	print_uint(console_vertical);
+
+
+	//print(XSDP->signature);
 
 	while(1){
 
