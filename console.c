@@ -2,7 +2,11 @@
 #include "library.h"
 #include "framebuffer.h"
 #include "gop.h"
+
+#include "library.h"
+
 #include <stdint.h>
+
 
 int console_current_line = 0;
 
@@ -40,6 +44,7 @@ void clear(){
 void print_uint(uint32_t number){
 
 	char buf[16];
+	set_memory(buf, 0, 16);		
 	char *pos = buf;
 
 	do {
