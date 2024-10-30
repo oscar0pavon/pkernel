@@ -36,9 +36,9 @@ struct ACPISystemDescriptorTableHeader{
 }__attribute__ ((packed));
 
 
-struct XSDT_t {
+struct __attribute__((packed, aligned(4))) XSDT_t {
   struct ACPISystemDescriptorTableHeader header;
-  void ** entries;
+  uint64_t* entries;
 };
 
 typedef struct {
