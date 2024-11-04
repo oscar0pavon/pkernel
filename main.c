@@ -17,6 +17,9 @@ struct LoadedImageProtocol* bootloader_image;
 Handle kernel_image_handle;
 
 Handle main_device;
+struct FileSystemProtocol* root_file_system;
+struct FileProtocol* root_directory;
+struct FileProtocol* opened_kernel_file;
 
 EfiGraphicsOutputProtocol* graphics_output_protocol;	
 
@@ -90,17 +93,8 @@ bool compare_efi_guid(EFI_GUID* guid1, EFI_GUID* guid2){
 	return true;
 }
 
-Status efi_main(
-	Handle in_efi_handle, struct SystemTable *in_system_table)
-{
 
-	system_table = in_system_table;
-
-	efi_handle = in_efi_handle;
-	
-
-	log(u"Pavon Kernel");
-
+void load_elf(){
 
 	struct GUID loaded_image_guid = EFI_LOADED_IMAGE_PROTOCOL_GUID;
 	
@@ -112,9 +106,44 @@ Status efi_main(
 			EFI_OPEN_PROTOCOL_GET_PROTOCOL)	;
 
 	if(loaded_image_status == EFI_SUCCESS){
-		log(u"got loaded image");
+		print("got bootloader image");
 	}
-	
+
+
+	main_device = bootloader_image->device;
+
+	struct GUID file_system_guid = EFI_SIMPLE_FILE_SYSTEM_PROTOCOL_GUID;
+
+	system_table->boot_table->open_protocol(main_device,
+			&file_system_guid,
+			(void**)&root_file_system,
+			efi_handle,
+			0,
+			EFI_OPEN_PROTOCOL_BY_HANDLE_PROTOCOL)	;
+
+	efi_status_t open_volumen_status = 
+		root_file_system->open_volume(root_file_system, &root_directory);
+
+	if(open_volumen_status != EFI_SUCCESS){
+		print("open volume error");
+	}
+
+	efi_status_t open_kernel_status = root_directory->open(
+			root_directory,
+			&opened_kernel_file,
+			u"kernel.elf",
+			EFI_FILE_MODE_READ,
+			EFI_FILE_READ_ONLY
+			);	
+
+	if(open_kernel_status != EFI_SUCCESS){
+		print("can't open kernel file");
+	}
+
+}
+
+void get_graphics_output_protocol(){
+
 	struct GUID gop_guid = EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID;
 	
 
@@ -167,6 +196,9 @@ Status efi_main(
 	console_horizonal = graphics_output_protocol->mode->mode_info->horizontal_resolution;
 	console_vertical = graphics_output_protocol->mode->mode_info->vertical_resolution;
 
+}
+
+void get_acpi_table(){
 
 	//get ACPI 2.0 table
 
@@ -181,10 +213,37 @@ Status efi_main(
 		}
 
 	}
+}
 
-	log(u"Exiting....");
+Status efi_main(
+	Handle in_efi_handle, struct SystemTable *in_system_table)
+{
+
+	system_table = in_system_table;
+
+	efi_handle = in_efi_handle;
 	
+
+	log(u"Pavon Kernel");
+
+
+	get_graphics_output_protocol();	
 	system_table->out->clear_screen(system_table->out);	
+
+	//now we can use print()
+	clear();
+
+
+	print("Loading kernel elf");
+	load_elf();
+	print("kernel loaded");
+
+	while(1){
+
+	}	
+
+	get_acpi_table();
+
 	exit_boot_services();
 
 //#########################################################
@@ -193,7 +252,6 @@ Status efi_main(
 //#########################################################
 
 
-	clear();
 
 	print("Horizontal Resolution:");
 	print_uint(console_horizonal);
