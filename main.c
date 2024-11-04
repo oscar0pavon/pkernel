@@ -212,6 +212,7 @@ Status efi_main(
 
 	for(int i = 0; i < number_of_entries_XSDT; i++){
 		 struct ACPISystemDescriptorTableHeader* myheader = (struct ACPISystemDescriptorTableHeader*)XSDT->entries[i];
+		 print(myheader->signature);
 		 if(acpi_compare_signature(myheader->signature, "FACP")){
 		 	print("Found FADT");
 		 }
