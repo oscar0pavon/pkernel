@@ -4,5 +4,5 @@ section ".text" executable
 
 _start:
   mov rax,5
-  ret
+  ret 0
 

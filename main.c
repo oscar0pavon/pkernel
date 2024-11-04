@@ -10,6 +10,8 @@
 
 #include "elf.h"
 
+#include "library.h"
+
 
 struct SystemTable* system_table;
 Handle* efi_handle;
@@ -220,6 +222,53 @@ void get_acpi_table(){
 	}
 }
 
+struct ReserveMemory {
+	const char *name;
+	uint64_t begin;
+	uint64_t end;
+};
+
+size_t reserves_count;
+size_t reserve_capacity;
+struct ReserveMemory* main_reserve;
+
+static efi_status reserve_memory(uint64_t begin, uint64_t end){
+	if(reserves_count == reserve_capacity){
+
+	size_t new_size = 2 * reserves_count;
+	struct ReserveMemory* new_reserve = 0;
+	struct ReserveMemory* old_reserve = main_reserve;
+
+
+	if(new_size == 0)	
+		new_size = 16;
+
+	system_table->boot_table->allocate_pool(
+			EFI_LOADER_DATA, 
+			new_size * sizeof(struct ReserveMemory), 
+			(void **)&new_reserve
+			);
+
+	copy_memory(new_reserve, old_reserve,
+			reserves_count * sizeof(struct ReserveMemory));
+
+	main_reserve = new_reserve;
+	reserve_capacity = new_size;
+	
+	if(old_reserve != 0){
+		system_table->boot_table->free_pool((void*)old_reserve);
+	}
+	}	
+	
+	set_memory(&main_reserve[reserves_count],0,sizeof(struct ReserveMemory));
+	main_reserve[reserves_count].name = "Kernel";
+	main_reserve[reserves_count].begin = begin;
+	main_reserve[reserves_count].end = end;
+	reserves_count++;
+
+}
+
+
 efi_status_t read_fixed(
 	struct SystemTable *system,
 	struct FileProtocol *file,
@@ -252,6 +301,39 @@ efi_status_t read_fixed(
 	return status;
 }
 
+static void get_image_size(
+	struct ElfHeader* kernel_header,
+	struct ElfProgramHeader* program_headers,
+	uint64_t alignment,
+	uint64_t *out_begin,
+	uint64_t *out_end)
+{
+	*out_begin = UINT64_MAX;
+	*out_end = 0;
+
+	for (size_t i = 0; i < kernel_header->program_header_number_of_entries; ++i) {
+		struct ElfProgramHeader *phdr = &program_headers[i];
+		uint64_t phdr_begin, phdr_end;
+		uint64_t align = alignment;
+
+		if (phdr->p_type != PT_LOAD)
+			continue;
+
+		if (phdr->p_align > align)
+			align = phdr->p_align;
+
+		phdr_begin = phdr->p_vaddr;
+		phdr_begin &= ~(align - 1);
+		if (*out_begin > phdr_begin)
+			*out_begin = phdr_begin;
+
+		phdr_end = phdr->p_vaddr + phdr->p_memsz + align - 1;
+		phdr_end &= ~(align - 1);
+		if (*out_end < phdr_end)
+			*out_end = phdr_end;
+	}
+}
+
 void execute_elf(){
 
 	efi_status_t status;
@@ -270,6 +352,69 @@ void execute_elf(){
 			(void*)&kernel_program_headers);
 
 	print("Readed ELF headers");
+
+	uint64_t page_size = 4096;
+	uint64_t image_begin;
+	uint64_t image_end;
+	uint64_t image_size;
+	uint64_t image_address;
+
+	
+	get_image_size(&kernel_elf_header,
+			kernel_program_headers, 
+			page_size, &image_begin, &image_end);
+
+	image_size = image_end - image_begin;
+
+	system_table->boot_table->allocate_pages(EFI_ALLOCATE_ANY_PAGES,
+			EFI_LOADER_DATA, image_size / page_size,
+			&image_address);
+
+	print("Allocated memory for ELF");
+
+
+	for (size_t i = 0; i < kernel_elf_header.program_header_number_of_entries; ++i) {
+		struct ElfProgramHeader *phdr = &kernel_program_headers[i];
+
+		uint64_t phdr_addr;
+
+		if (phdr->p_type != PT_LOAD)
+			continue;
+
+		phdr_addr = image_address + phdr->p_vaddr - image_begin;
+		status = read_fixed(
+			system_table,
+			opened_kernel_file,
+			phdr->p_offset,
+			phdr->p_filesz,
+			(void *)phdr_addr);
+		if (status != EFI_SUCCESS) {
+			print("Failed to read elf segment in memory");
+		}
+	
+
+		reserve_memory(phdr_addr, phdr_addr + phdr->p_memsz);
+
+
+	}
+
+	print("ELF loaded in memory");
+
+	uint64_t kernel_image_entry = image_address + kernel_elf_header.e_entry - image_begin;	
+
+	int (ELFABI *entry)();
+
+	exit_boot_services();
+	
+	entry = (int (ELFABI *)())
+	kernel_image_entry;
+
+	int elf_result = 0;
+	elf_result = (*entry)();
+	print("Kernel executed");
+	print_uint(elf_result);
+
+
 
 }
 
@@ -295,6 +440,8 @@ Status efi_main(
 	print("Loading kernel elf");
 	load_elf();
 	print("kernel loaded");
+
+	execute_elf();
 
 	while(1){
 
