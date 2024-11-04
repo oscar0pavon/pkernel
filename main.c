@@ -8,6 +8,8 @@
 
 #include <stdint.h>
 
+#include "elf.h"
+
 
 struct SystemTable* system_table;
 Handle* efi_handle;
@@ -22,6 +24,9 @@ struct FileProtocol* root_directory;
 struct FileProtocol* opened_kernel_file;
 
 EfiGraphicsOutputProtocol* graphics_output_protocol;	
+
+struct ElfHeader kernel_elf_header;	
+struct ElfProgramHeader* kernel_program_headers;
 
 void log(uint16_t* text){
 	
@@ -213,6 +218,59 @@ void get_acpi_table(){
 		}
 
 	}
+}
+
+efi_status_t read_fixed(
+	struct SystemTable *system,
+	struct FileProtocol *file,
+	uint64_t offset,
+	size_t size,
+	void *dst)
+{
+	efi_status_t status = EFI_SUCCESS;
+	unsigned char *buf = dst;
+	size_t read = 0;
+
+	status = file->set_position(file, offset);
+	if (status != EFI_SUCCESS) {
+
+		return status;
+	}
+
+	while (read < size) {
+		efi_uint_t remains = size - read;
+
+		status = file->read(file, &remains, (void *)(buf + read));
+		if (status != EFI_SUCCESS) {
+	
+			return status;
+		}
+
+		read += remains;
+	}
+
+	return status;
+}
+
+void execute_elf(){
+
+	efi_status_t status;
+	read_fixed(system_table, opened_kernel_file, 0, 
+			sizeof(struct ElfHeader), &kernel_elf_header);
+
+	system_table->boot_table->allocate_pool(EFI_LOADER_DATA,
+			kernel_elf_header.program_header_number_of_entries * 
+			kernel_elf_header.program_header_entry_size,
+			(void**)kernel_program_headers)	;
+
+	read_fixed(system_table, opened_kernel_file,
+			kernel_elf_header.program_header_offset, 
+			kernel_elf_header.program_header_number_of_entries *
+			kernel_elf_header.program_header_entry_size,
+			(void*)&kernel_program_headers);
+
+	print("Readed ELF headers");
+
 }
 
 Status efi_main(
