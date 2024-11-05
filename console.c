@@ -21,6 +21,15 @@ const uint32_t background_color = 0x282C34;
 int console_horizonal = 0;
 int console_vertical = 0;
 
+void print_in_the_line(const char* string){
+ 
+ int char_count = string_length(string);
+ for(int i = 0; i < char_count ; i++){
+	draw_character(string[i], i*8, console_current_line*16, white, background_color);
+ }
+
+}
+
 void print(const char* string){
  
  int char_count = string_length(string);
