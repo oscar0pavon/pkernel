@@ -29,6 +29,7 @@ EfiGraphicsOutputProtocol* graphics_output_protocol;
 
 struct ElfHeader kernel_elf_header;	
 struct ElfProgramHeader* kernel_program_headers;
+char * kernel_bin;
 
 void log(uint16_t* text){
 	
@@ -138,7 +139,7 @@ void load_elf(){
 	efi_status_t open_kernel_status = root_directory->open(
 			root_directory,
 			&opened_kernel_file,
-			u"kernel.elf",
+			u"kernel.bin",
 			EFI_FILE_MODE_READ,
 			EFI_FILE_READ_ONLY
 			);	
@@ -146,7 +147,7 @@ void load_elf(){
 	if(open_kernel_status != EFI_SUCCESS){
 		print("can't open kernel file");
 	}
-
+	print("kernel loaded");
 }
 
 void get_graphics_output_protocol(){
@@ -270,7 +271,6 @@ static efi_status reserve_memory(uint64_t begin, uint64_t end){
 
 
 efi_status_t read_fixed(
-	struct SystemTable *system,
 	struct FileProtocol *file,
 	uint64_t offset,
 	size_t size,
@@ -337,15 +337,16 @@ static void get_image_size(
 void execute_elf(){
 
 	efi_status_t status;
-	read_fixed(system_table, opened_kernel_file, 0, 
+	read_fixed(opened_kernel_file, 0, 
 			sizeof(struct ElfHeader), &kernel_elf_header);
+
 
 	system_table->boot_table->allocate_pool(EFI_LOADER_DATA,
 			kernel_elf_header.program_header_number_of_entries * 
 			kernel_elf_header.program_header_entry_size,
 			(void**)kernel_program_headers)	;
 
-	read_fixed(system_table, opened_kernel_file,
+	read_fixed(opened_kernel_file,
 			kernel_elf_header.program_header_offset, 
 			kernel_elf_header.program_header_number_of_entries *
 			kernel_elf_header.program_header_entry_size,
@@ -383,7 +384,6 @@ void execute_elf(){
 
 		phdr_addr = image_address + phdr->p_vaddr - image_begin;
 		status = read_fixed(
-			system_table,
 			opened_kernel_file,
 			phdr->p_offset,
 			phdr->p_filesz,
@@ -402,15 +402,14 @@ void execute_elf(){
 
 	uint64_t kernel_image_entry = image_address + kernel_elf_header.e_entry - image_begin;	
 
-	int (ELFABI *entry)();
+	void (ELFABI *entry)(struct ReserveMemory*, size_t);
 
 	exit_boot_services();
 	
-	entry = (int (ELFABI *)())
-	kernel_image_entry;
+	entry = (void (ELFABI *)(struct ReserveMemory*, size_t))kernel_image_entry;
 
 	int elf_result = 0;
-	elf_result = (*entry)();
+	(*entry)(main_reserve, reserves_count);
 	print("Kernel executed");
 	print_uint(elf_result);
 
@@ -437,11 +436,35 @@ Status efi_main(
 	clear();
 
 
-	print("Loading kernel elf");
 	load_elf();
-	print("kernel loaded");
 
-	execute_elf();
+
+	char kernel_txt[3];
+	set_memory(kernel_txt, 0, 3);
+	read_fixed(opened_kernel_file,0,3,(void*)&kernel_txt);
+	print("Readed kernel bin");
+
+	print(kernel_txt);
+	char(*kernel_main)(); 
+	kernel_main = kernel_txt;
+
+	print("calling kernel.bin");
+	
+	exit_boot_services();
+
+	while(1){
+
+		char restul = 'a';
+		char buff[2];
+		buff[0] = '\0';
+		buff[1] = '\0';
+
+		buff[0] = (*kernel_main)();
+		print_in_the_line(buff);
+	}
+
+	print("executed successfully");
+
 
 	while(1){
 
