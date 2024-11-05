@@ -31,7 +31,7 @@ struct ElfHeader kernel_elf_header;
 struct ElfProgramHeader* kernel_program_headers;
 char * kernel_bin;
 
-void log(uint16_t* text){
+void efi_log(uint16_t* text){
 	
 	system_table->out->output_string(system_table->out,text);
 	system_table->out->output_string(system_table->out,u"\n\r");
@@ -53,7 +53,7 @@ static void exit_boot_services(){
 			mmap_size,
 			(void **)&mmap);
 		if(status != EFI_SUCCESS){
-			log(u"Can't allocate memory for memory map");
+			efi_log(u"Can't allocate memory for memory map");
 		}
 
 		status = system_table->boot_table->get_memory_map(
@@ -73,7 +73,7 @@ static void exit_boot_services(){
 			mmap_key);
 
 	if(status != EFI_SUCCESS){
-		log(u"ERROR boot service not closed");
+		efi_log(u"ERROR boot service not closed");
 		return;
 	}
 
@@ -163,21 +163,21 @@ void get_graphics_output_protocol(){
 			EFI_OPEN_PROTOCOL_BY_HANDLE_PROTOCOL)	;
 
 	if(status != EFI_SUCCESS){
-		log(u"Can't get Graphics Output Protocol with open_protocol");
+		efi_log(u"Can't get Graphics Output Protocol with open_protocol");
 	}
 
 	status = system_table->boot_table->handle_protocol(efi_handle, &gop_guid, 
 			(void**)&graphics_output_protocol);
 
 	if(status != EFI_SUCCESS){
-		log(u"Can't get Graphics Output Protocol with handle_protocol");
+		efi_log(u"Can't get Graphics Output Protocol with handle_protocol");
 	}
 
 	status = system_table->boot_table->locate_protocol(&gop_guid,
 			(void*)0, (void**)&graphics_output_protocol);
 
 	if(status != EFI_SUCCESS){
-		log(u"Can't get Graphics Output Protocol with locate_protocol");
+		efi_log(u"Can't get Graphics Output Protocol with locate_protocol");
 	}
 	
 
@@ -186,7 +186,7 @@ void get_graphics_output_protocol(){
 	EfiGraphicsOutputModeInformation *info;
 	uint64_t size_of_info, number_of_modes, native_mode;
 	if(graphics_output_protocol->mode == NULL){
-		log(u"Graphics Output Protocol Mode is NULL");
+		efi_log(u"Graphics Output Protocol Mode is NULL");
 		status = graphics_output_protocol->query_mode(graphics_output_protocol,
 				0 , &size_of_info, &info);
 	}else{
@@ -195,7 +195,7 @@ void get_graphics_output_protocol(){
 	}
 
 	if(status != EFI_SUCCESS){
-		log(u"Can't query mode");
+		efi_log(u"Can't query mode");
 	}
 	
 	native_mode = graphics_output_protocol->mode->mode;
@@ -216,7 +216,7 @@ void get_acpi_table(){
 		EfiConfigurationTable* table = &system_table->configuration_tables[i];
 		
 		if(compare_efi_guid(&table->vendor_guid,&acpi_guid)){
-			log(u"Found ACPI 2.0 table");
+			efi_log(u"Found ACPI 2.0 table");
 			XSDP = table->vendor_table;
 		}
 
@@ -426,7 +426,7 @@ Status efi_main(
 	efi_handle = in_efi_handle;
 	
 
-	log(u"Pavon Kernel");
+	efi_log(u"Pavon Kernel");
 
 
 	get_graphics_output_protocol();	
