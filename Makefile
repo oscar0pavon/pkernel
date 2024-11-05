@@ -18,8 +18,11 @@ $(OBJS): %.o : %.c
 kernel.bin:
 	fasm kernel.s kernel.bin
 
-pkernel: $(OBJS) kernel.bin
-	$(LD) $(LDFLAGS) ${OBJS} -out:/root/virtual_machine/disk/pkernel #-verbose 
+ps2_keyboard.o: ./drivers/ps2_keyboard.c
+	$(CC)	$(CFLAGS) -c ./drivers/ps2_keyboard.c
+
+pkernel: $(OBJS) kernel.bin ps2_keyboard.o
+	$(LD) $(LDFLAGS) ${OBJS} ps2_keyboard.o -out:/root/virtual_machine/disk/pkernel #-verbose 
 
 #-include $(SRCS:.c=.d)
 

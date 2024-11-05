@@ -12,6 +12,7 @@
 
 #include "library.h"
 
+#include "drivers/ps2_keyboard.h"
 
 struct SystemTable* system_table;
 Handle* efi_handle;
@@ -458,7 +459,6 @@ Status efi_main(
 	print_in_line_buffer_number(12,"d");
 	print_in_line_buffer_number(12,"d");
 
-	bool key_processed = false;
 	while(1){
 
 		char restul = 'a';
@@ -466,17 +466,13 @@ Status efi_main(
 		buff[0] = '\0';
 		buff[1] = '\0';
 
-		byte ps2_response = 0;
-		ps2_response = (*kernel_main)();
-		buff[0] = ps2_response;
-		if(ps2_response == 0x9E){
-			if(key_processed==false){
-				print_in_line_buffer_number(12,"a");
-				key_processed = true;
-			}else{
-				print_in_line_number(8,"              ");
-			}
+
+		char input = ps2_keyboard_get_input(kernel_main);
+		buff[0] = input;
+		if(input != '\0'){
+			print_in_line_buffer_number(12,buff);
 		}
+
 		print_in_line_number(9, buff);
 	}
 
