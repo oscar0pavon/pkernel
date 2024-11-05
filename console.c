@@ -30,6 +30,14 @@ void print_in_the_line(const char* string){
 
 }
 
+void print_in_line_number(uint8_t line_number, char* string){
+
+ int char_count = string_length(string);
+ for(int i = 0; i < char_count ; i++){
+	draw_character(string[i], i*8, line_number*16, white, background_color);
+ }
+}
+
 void print(const char* string){
  
  int char_count = string_length(string);

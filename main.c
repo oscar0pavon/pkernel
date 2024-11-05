@@ -445,7 +445,7 @@ Status efi_main(
 	print("Readed kernel bin");
 
 	print(kernel_txt);
-	char(*kernel_main)(); 
+	byte(*kernel_main)(); 
 	kernel_main = kernel_txt;
 
 	print("calling kernel.bin");
@@ -459,8 +459,13 @@ Status efi_main(
 		buff[0] = '\0';
 		buff[1] = '\0';
 
-		buff[0] = (*kernel_main)();
-		print_in_the_line(buff);
+		byte ps2_response = 0;
+		ps2_response = (*kernel_main)();
+		buff[0] = ps2_response;
+		if(ps2_response == 0xFA){
+			print_in_line_number(8,"ACK");
+		}
+		print_in_line_number(9, buff);
 	}
 
 	print("executed successfully");

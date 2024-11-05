@@ -9,6 +9,8 @@ void print(const char* string);
 
 void print_in_the_line(const char* string);
 
+void print_in_line_number(uint8_t line_number, char* string);
+
 void print_uint(uint32_t number);
 
 void clear();
