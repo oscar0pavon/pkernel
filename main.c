@@ -452,6 +452,13 @@ Status efi_main(
 	
 	exit_boot_services();
 
+	print_in_line_buffer_number(12,"d");
+	print_in_line_buffer_number(12,"d");
+	print_in_line_buffer_number(12,"d");
+	print_in_line_buffer_number(12,"d");
+	print_in_line_buffer_number(12,"d");
+
+	bool key_processed = false;
 	while(1){
 
 		char restul = 'a';
@@ -462,8 +469,13 @@ Status efi_main(
 		byte ps2_response = 0;
 		ps2_response = (*kernel_main)();
 		buff[0] = ps2_response;
-		if(ps2_response == 0xFA){
-			print_in_line_number(8,"ACK");
+		if(ps2_response == 0x9E){
+			if(key_processed==false){
+				print_in_line_buffer_number(12,"a");
+				key_processed = true;
+			}else{
+				print_in_line_number(8,"              ");
+			}
 		}
 		print_in_line_number(9, buff);
 	}

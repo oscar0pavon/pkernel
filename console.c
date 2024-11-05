@@ -21,7 +21,17 @@ const uint32_t background_color = 0x282C34;
 int console_horizonal = 0;
 int console_vertical = 0;
 
-void print_in_the_line(const char* string){
+int console_line_buffer_number = 0;
+
+void print_in_line_buffer_number(uint8_t line_number, char* string){
+ int char_count = string_length(string);
+ for(int i = 0; i < char_count ; i++){
+	draw_character(string[i], (i+console_line_buffer_number)*8, line_number*16, white, background_color);
+ }
+ console_line_buffer_number+=char_count;
+}
+
+void print_in_curent_line(const char* string){
  
  int char_count = string_length(string);
  for(int i = 0; i < char_count ; i++){
