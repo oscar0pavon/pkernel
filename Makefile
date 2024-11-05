@@ -15,11 +15,10 @@ all: pkernel
 $(OBJS): %.o : %.c
 	$(CC) $(CFLAGS) -c $<
 
-kernel.elf:
-	fasm kernel.s
-	ld kernel.o -o kernel.elf
+kernel.bin:
+	fasm kernel.s kernel.bin
 
-pkernel: $(OBJS) kernel.elf
+pkernel: $(OBJS) kernel.bin
 	$(LD) $(LDFLAGS) ${OBJS} -out:/root/virtual_machine/disk/pkernel #-verbose 
 
 #-include $(SRCS:.c=.d)
@@ -28,10 +27,10 @@ release:
 	cp /root/virtual_machine/disk/pkernel /boot/pkernel
 
 install:
-	cp kernel.elf /root/virtual_machine/disk/kernel.elf	
+	cp kernel.bin /root/virtual_machine/disk/kernel.bin
 
 clean:
 	rm -f *.o
 	rm -f *.d
-	rm -f kernel.elf
+	rm -f kernel.bin
 
