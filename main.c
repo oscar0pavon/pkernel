@@ -375,62 +375,49 @@ void execute_elf(){
 	print("Kernel file size");
 	print_uint(kernel_file_size);
 
+	uint64_t* kernel_in_memory;
 
-	status = read_fixed(opened_kernel_file, 0, 
-			sizeof(struct ElfHeader), &kernel_elf_header);
-	if(status != EFI_SUCCESS){
-		print("ERROR reanding ELF header");
-	}
-	print("Program header number of entries");
-	print_uint(kernel_elf_header.program_header_number_of_entries);
-	print("Program header entry size");
-	print_uint(kernel_elf_header.program_header_entry_size);
-
-	uint64_t allocate_pool_size = kernel_elf_header.program_header_number_of_entries *
-		kernel_elf_header.program_header_entry_size;
-
-	uint64_t* allocated_memory;
 	efi_status pool_status = system_table->boot_table->allocate_pool(EFI_LOADER_DATA,
-			allocate_pool_size,
-			(void**)allocated_memory)	;
+			kernel_file_size,
+			(void**)kernel_in_memory)	;
 	
 	if(pool_status != EFI_SUCCESS){
 		print("ERROR allocating pool");
+	}else{
+		print("Memory allocated for ELF");
 	}
 
-	// read_fixed(opened_kernel_file,
-	// 		kernel_elf_header.program_header_offset, 
-	// 		allocate_pool_size,
-	// 		(void*)&allocated_memory);
+	
 
-	struct ElfProgramHeader programs[2];
-	set_memory(programs, 0, sizeof(programs));
-	print("Program header offset");
-	print_uint(kernel_elf_header.program_header_offset);
-
-	status = read_fixed(opened_kernel_file,
-			kernel_elf_header.program_header_offset, 
-			allocate_pool_size,
-			(void*)programs);
+	status = read_fixed(opened_kernel_file, 0, 
+			kernel_file_size, kernel_in_memory);
 	if(status != EFI_SUCCESS){
-		print("ERROR reading program headers");
+		print("ERROR loading kernel in memory");
 	}
-	print("Offset");
-	print_byte_hex(programs[0].offset);
-	print_byte_hex(programs[1].offset);
+
+	struct ElfHeader* kernel_elf = (struct ElfHeader*)kernel_in_memory;
 
 
+	print("Program header number of entries");
+	print_uint(kernel_elf->program_header_number_of_entries);
+	print("Program header entry size");
+	print_uint(kernel_elf->program_header_entry_size);
 
-	struct ElfProgramHeader* program_header1 = (struct ElfProgramHeader*)&allocated_memory[1];
 
-	program_header1 = &programs[0];
+	uint64_t allocate_pool_size = kernel_elf->program_header_number_of_entries *
+		kernel_elf->program_header_entry_size;
 
-	print("Program header 1 size");
-	print_byte_hex(program_header1->file_size);
-	print_uint(program_header1->file_size);
+
+	struct ElfProgramHeader* program1 = (struct ElfProgramHeader*)kernel_in_memory[kernel_elf->program_header_offset];
+	print("Memory program size");
+	print_uint(program1->file_size);
 	
 
 	print("Readed ELF headers");
+
+	while(1){
+
+	}
 
 	uint64_t page_size = 4096;
 	uint64_t image_begin;
@@ -438,10 +425,9 @@ void execute_elf(){
 	uint64_t image_size;
 	uint64_t image_address;
 
-	print_uint(program_header1->type);
 
 	get_image_size(&kernel_elf_header,
-			programs, 
+			kernel_in_memory, 
 			page_size, &image_begin, &image_end);
 
 	image_size = image_end - image_begin;
