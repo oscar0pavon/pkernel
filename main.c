@@ -160,19 +160,18 @@ void load_bin(){
 
 void load_elf(){
 
-
 	efi_status_t open_kernel_status = root_directory->open(
 			root_directory,
 			&opened_kernel_file,
-			u"kernel.bin",
+			u"fasm.elf",
 			EFI_FILE_MODE_READ,
 			EFI_FILE_READ_ONLY
 			);	
 
 	if(open_kernel_status != EFI_SUCCESS){
-		print("can't open kernel file");
+		print("can't open elf file");
 	}
-	print("kernel loaded");
+	print("elf file loaded");
 }
 
 void get_graphics_output_protocol(){
@@ -405,27 +404,30 @@ void execute_elf(){
 
 	print("Allocated memory for ELF");
 
+	//uint8_t my_stack_memory[image_size/page_size];
+	//set_memory(my_stack_memory,0,image_size/page_size);
 
 	for (size_t i = 0; i < kernel_elf_header.program_header_number_of_entries; ++i) {
-		struct ElfProgramHeader *phdr = &kernel_program_headers[i];
+		struct ElfProgramHeader *program_header = &kernel_program_headers[i];
 
-		uint64_t phdr_addr;
+		uint64_t program_header_address;
 
-		if (phdr->p_type != PT_LOAD)
+		if (program_header->p_type != PT_LOAD)
 			continue;
 
-		phdr_addr = image_address + phdr->p_vaddr - image_begin;
+		program_header_address = image_address + program_header->p_vaddr - image_begin;
 		status = read_fixed(
 			opened_kernel_file,
-			phdr->p_offset,
-			phdr->p_filesz,
-			(void *)phdr_addr);
+			program_header->p_offset,
+			program_header->p_filesz,
+			(void *)program_header_address);
 		if (status != EFI_SUCCESS) {
 			print("Failed to read elf segment in memory");
 		}
 	
 
-		reserve_memory(phdr_addr, phdr_addr + phdr->p_memsz);
+		reserve_memory(program_header_address,
+				program_header_address + program_header->p_memsz);
 
 
 	}
@@ -434,16 +436,24 @@ void execute_elf(){
 
 	uint64_t kernel_image_entry = image_address + kernel_elf_header.e_entry - image_begin;	
 
-	void (ELFABI *entry)(struct ReserveMemory*, size_t);
+	//void (ELFABI *entry)(struct ReserveMemory*, size_t);
+
+	int (ELFABI*entry)();
 
 	exit_boot_services();
 	
-	entry = (void (ELFABI *)(struct ReserveMemory*, size_t))kernel_image_entry;
+	//entry = (void (ELFABI *)(struct ReserveMemory*, size_t))kernel_image_entry;
+
+	entry = (int(ELFABI*)())kernel_image_entry;
 
 	int elf_result = 0;
-	(*entry)(main_reserve, reserves_count);
+	elf_result = (*entry)();
 	print("Kernel executed");
 	print_uint(elf_result);
+
+	while(1){
+
+	}
 
 
 
@@ -545,6 +555,9 @@ efi_status efi_main(Handle in_efi_handle, struct SystemTable *in_system_table)
 	efi_get_root_directory();
 	//now we can load files
 
+
+	load_elf();
+	execute_elf();
 
 	get_acpi_table();
 
