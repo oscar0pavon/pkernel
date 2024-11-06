@@ -418,24 +418,7 @@ void execute_elf(){
 
 }
 
-Status efi_main(
-	Handle in_efi_handle, struct SystemTable *in_system_table)
-{
-
-	system_table = in_system_table;
-
-	efi_handle = in_efi_handle;
-	
-
-	efi_log(u"Pavon Kernel");
-
-
-	get_graphics_output_protocol();	
-	system_table->out->clear_screen(system_table->out);	
-
-	//now we can use print()
-	clear();
-
+void input_loop(){
 
 	load_elf();
 
@@ -482,10 +465,26 @@ Status efi_main(
 
 	print("executed successfully");
 
+}
 
-	while(1){
+Status efi_main(
+	Handle in_efi_handle, struct SystemTable *in_system_table)
+{
 
-	}	
+	system_table = in_system_table;
+
+	efi_handle = in_efi_handle;
+	
+
+	efi_log(u"Pavon Kernel");
+
+
+	get_graphics_output_protocol();	
+	system_table->out->clear_screen(system_table->out);	
+
+	//now we can use print()
+	clear();
+
 
 	get_acpi_table();
 
