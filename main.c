@@ -465,6 +465,7 @@ void execute_elf(){
 			continue;
 
 		program_header_address = image_address + program_header->virtual_address- image_begin;
+		uint8_t* program_header_in_bytes = (uint8_t*)program_header;
 	
 		// status = read_fixed(
 		// 	opened_kernel_file,
@@ -474,6 +475,8 @@ void execute_elf(){
 		// if (status != EFI_SUCCESS) {
 		// 	print("Failed to read elf segment in memory");
 		// }
+
+		copy_memory(&program_header_address, program_header_in_bytes + program_header->offset, program_header->file_size);
 	
 
 		// reserve_memory(program_header_address,
@@ -482,9 +485,6 @@ void execute_elf(){
 
 	}
 
-	while(1){
-
-	}
 	print("ELF loaded in memory");
 
 	uint64_t kernel_image_entry = image_address + kernel_elf->e_entry - image_begin;	
