@@ -361,24 +361,59 @@ static void get_image_size(
 void execute_elf(){
 
 	efi_status_t status;
-	read_fixed(opened_kernel_file, 0, 
+
+	status = opened_kernel_file->set_position(opened_kernel_file, 0xFFFFFFFFFFFFFFFF)	;
+	uint64_t kernel_file_size;
+	status = opened_kernel_file->get_position(opened_kernel_file, &kernel_file_size);
+
+	print("Kernel file size");
+	print_uint(kernel_file_size);
+
+
+	status = read_fixed(opened_kernel_file, 0, 
 			sizeof(struct ElfHeader), &kernel_elf_header);
+	if(status != EFI_SUCCESS){
+		print("ERROR reanding ELF header");
+	}
+	print("Program header number of entries");
+	print_uint(kernel_elf_header.program_header_number_of_entries);
+	print("Program header entry size");
+	print_uint(kernel_elf_header.program_header_entry_size);
 
+	uint64_t allocate_pool_size = kernel_elf_header.program_header_number_of_entries *
+		kernel_elf_header.program_header_entry_size;
 
+	uint64_t* allocated_memory;
 	efi_status pool_status = system_table->boot_table->allocate_pool(EFI_LOADER_DATA,
-			kernel_elf_header.program_header_number_of_entries * 
-			kernel_elf_header.program_header_entry_size,
-			(void**)kernel_program_headers)	;
-
+			allocate_pool_size,
+			(void**)allocated_memory)	;
+	
 	if(pool_status != EFI_SUCCESS){
 		print("ERROR allocating pool");
 	}
 
 	read_fixed(opened_kernel_file,
 			kernel_elf_header.program_header_offset, 
-			kernel_elf_header.program_header_number_of_entries *
-			kernel_elf_header.program_header_entry_size,
-			(void*)&kernel_program_headers);
+			allocate_pool_size,
+			(void*)&allocated_memory);
+
+	struct ElfProgramHeader* programs[2];
+	
+	read_fixed(opened_kernel_file,
+			kernel_elf_header.program_header_offset, 
+			allocate_pool_size,
+			(void*)&programs);
+
+
+
+	struct ElfProgramHeader* program_header1 = (struct ElfProgramHeader*)&allocated_memory[1];
+
+	program_header1 = programs[1];
+
+	print("Program header 1 size");
+	print_byte_hex(program_header1->p_filesz);
+	print_uint(program_header1->p_filesz);
+	
 
 	print("Readed ELF headers");
 
@@ -394,6 +429,9 @@ void execute_elf(){
 			page_size, &image_begin, &image_end);
 
 	image_size = image_end - image_begin;
+
+	print("Image size");
+	print_uint(image_size);
 
 	efi_status alloc = system_table->boot_table->allocate_pages(EFI_ALLOCATE_ANY_PAGES,
 			EFI_LOADER_DATA, image_size / page_size,
