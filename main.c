@@ -452,7 +452,7 @@ Status efi_main(
 	print("calling kernel.bin");
 	
 	print_byte_hex(10);
-	print_byte_hex(PS2_KEYBOARD_A_RELEASED);
+	print_byte_hex(PS2_KEYBOARD_D_RELEASED);
 
 	exit_boot_services();
 

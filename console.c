@@ -105,12 +105,12 @@ void print_byte_hex(uint8_t number) {
     uint8_t result1 = number / 16;
     uint8_t result2 = number % 16;
     
-    if(result2>16){
-      digit_to_hex(&buff[2], result1);
+    if(result1>16){
+      
+      digit_to_hex(&buff[3], result2);
     }else{
-      buff[2] = result1 + '0';
+      digit_to_hex(&buff[2], result1);
     }
-    digit_to_hex(&buff[3], result2);
 
 
 

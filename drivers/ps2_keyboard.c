@@ -7,7 +7,8 @@
 typedef uint8_t key[3];
 
 key keyboard[] = {
-	{PS2_KEYBOARD_A_PRESSED,PS2_KEYBOARD_A_RELEASED,'a'}
+	{PS2_KEYBOARD_A_PRESSED,PS2_KEYBOARD_A_RELEASED,'a'},
+	{PS2_KEYBOARD_D_PRESSED,PS2_KEYBOARD_D_RELEASED,'d'}
 };
 
 int current_procces_key = 254;
