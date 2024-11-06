@@ -15,6 +15,8 @@ void print_in_line_buffer_number(uint8_t line_number, char* string);
 
 void print_uint(uint32_t number);
 
+void print_byte_hex(uint8_t number);
+
 void clear();
 
 extern int console_horizonal;

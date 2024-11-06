@@ -67,6 +67,61 @@ void clear(){
 		}
 	}
 }
+void digit_to_hex(char*buff, uint8_t digit){
+
+    if (digit > 9) {
+
+      if (digit == 10) {
+        buff[0] = 'A';
+      }
+      if (digit == 11) {
+        buff[0] = 'B';
+      }
+      if (digit == 12) {
+        buff[0] = 'C';
+      }
+      if (digit == 13) {
+        buff[0] = 'D';
+      }
+      if (digit == 14) {
+        buff[0] = 'E';
+      }
+      if (digit == 15) {
+        buff[0] = 'F';
+      }
+    } else {
+      buff[0] = digit - '0';
+    }
+}
+
+void print_byte_hex(uint8_t number) {
+  char buff[5];
+  set_memory(buff,0,5);
+
+  buff[0] = '0';
+  buff[1] = 'x';
+  if (number > 16) {
+
+    uint8_t result2 = number / 16;
+    uint8_t result1 = number % 16;
+    
+    digit_to_hex(&buff[2], result2);
+    digit_to_hex(&buff[3], result1);
+
+
+  } else {
+    buff[2] = '0';
+    digit_to_hex(&buff[3], number);
+  }
+
+  int char_count = string_length(buff);
+  for (int i = 0; i < char_count; i++) {
+    draw_character(buff[i], i * 8, console_current_line * 16, white,
+                   background_color);
+  }
+
+  console_current_line++;
+}
 
 void print_uint(uint32_t number){
 

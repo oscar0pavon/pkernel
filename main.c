@@ -451,6 +451,8 @@ Status efi_main(
 
 	print("calling kernel.bin");
 	
+	print_byte_hex(10);
+
 	exit_boot_services();
 
 	print_in_line_buffer_number(12,"d");
@@ -472,6 +474,7 @@ Status efi_main(
 		if(input != '\0'){
 			print_in_line_buffer_number(12,buff);
 		}
+
 
 		print_in_line_number(9, buff);
 	}
