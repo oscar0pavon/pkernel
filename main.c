@@ -141,9 +141,24 @@ void efi_get_root_directory(){
 
 }
 
+void load_bin(){
+
+	efi_status_t open_kernel_status = root_directory->open(
+			root_directory,
+			&opened_kernel_file,
+			u"kernel.bin",
+			EFI_FILE_MODE_READ,
+			EFI_FILE_READ_ONLY
+			);	
+
+	if(open_kernel_status != EFI_SUCCESS){
+		print("can't open bin file");
+	}
+	print("bin loaded");
+
+}
+
 void load_elf(){
-
-
 
 
 	efi_status_t open_kernel_status = root_directory->open(
@@ -463,7 +478,7 @@ void parse_FADT(){
 
 void input_loop(){
 
-	load_elf();
+	load_bin();
 
 
 	char kernel_txt[3];
@@ -510,8 +525,7 @@ void input_loop(){
 
 }
 
-Status efi_main(
-	Handle in_efi_handle, struct SystemTable *in_system_table)
+efi_status efi_main(Handle in_efi_handle, struct SystemTable *in_system_table)
 {
 
 	system_table = in_system_table;
