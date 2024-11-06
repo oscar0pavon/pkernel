@@ -398,21 +398,26 @@ void execute_elf(){
 		print("ERROR allocating pool");
 	}
 
-	read_fixed(opened_kernel_file,
-			kernel_elf_header.program_header_offset, 
-			allocate_pool_size,
-			(void*)&allocated_memory);
+	// read_fixed(opened_kernel_file,
+	// 		kernel_elf_header.program_header_offset, 
+	// 		allocate_pool_size,
+	// 		(void*)&allocated_memory);
 
 	struct ElfProgramHeader programs[2];
 	set_memory(programs, 0, sizeof(programs));
-	
-	read_fixed(opened_kernel_file,
+	print("Program header offset");
+	print_uint(kernel_elf_header.program_header_offset);
+
+	status = read_fixed(opened_kernel_file,
 			kernel_elf_header.program_header_offset, 
 			allocate_pool_size,
 			(void*)programs);
+	if(status != EFI_SUCCESS){
+		print("ERROR reading program headers");
+	}
 	print("Offset");
-	print_uint(programs[1].offset);
-	print_uint(programs[0].offset);
+	print_byte_hex(programs[0].offset);
+	print_byte_hex(programs[1].offset);
 
 
 
@@ -443,6 +448,7 @@ void execute_elf(){
 
 	print("Image size");
 	print_uint(image_size);
+
 
 	efi_status alloc = system_table->boot_table->allocate_pages(EFI_ALLOCATE_ANY_PAGES,
 			EFI_LOADER_DATA, image_size / page_size,

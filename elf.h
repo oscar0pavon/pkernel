@@ -36,7 +36,7 @@ static const unsigned char ELFDATANONE = 0;
 static const unsigned char ELFDATA2LSB = 1;
 static const unsigned char ELFDATA2MSB = 2;
 
-struct ElfHeader {
+struct __attribute__((packed, aligned(8))) ElfHeader {
     unsigned char e_ident[16];
     uint16_t e_type;
     uint16_t e_machine;
@@ -68,7 +68,7 @@ static const uint32_t PF_X = 1;
 static const uint32_t PF_W = 2;
 static const uint32_t PF_R = 4;
 
-struct ElfProgramHeader {
+struct __attribute__((packed, aligned(8))) ElfProgramHeader {
     uint32_t type;
     uint32_t flags;
     uint64_t offset;
