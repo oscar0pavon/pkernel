@@ -418,6 +418,33 @@ void execute_elf(){
 
 }
 
+void parse_FADT(){
+
+	if(acpi_compare_signature(FADT->header.signature, "FACP")){
+			uint32_t fadt_size = FADT->header.length;
+			if(fadt_size != sizeof(struct FADT_t)){
+				print("FADT size not equal");
+				print_uint(FADT->header.length);
+				print_uint(sizeof(struct FADT_t));
+			}
+
+			struct ACPISystemDescriptorTableHeader* header = (struct ACPISystemDescriptorTableHeader*)(FADT->X_Dsdt);
+	
+			header = (struct ACPISystemDescriptorTableHeader*)&FADT->X_Dsdt;
+		if(acpi_compare_signature(header->signature, "DSDT")){
+			print("Work DSDT");
+		}else{
+			print("DSDT not work");
+		}
+		if(FADT->X_Dsdt == 0){
+			print("DSDT memory zero");
+		}
+		DSDT = (struct DSDT_t*)FADT->X_Dsdt;
+		//print(DSDT->header.signature);
+
+	}
+}
+
 void input_loop(){
 
 	load_elf();
@@ -513,37 +540,21 @@ Status efi_main(
 
 	for(int i = 0; i < number_of_entries_XSDT; i++){
 		 struct ACPISystemDescriptorTableHeader* myheader = (struct ACPISystemDescriptorTableHeader*)XSDT->entries[i];
-		 print(myheader->signature);
+		 //print(myheader->signature);
 		 if(acpi_compare_signature(myheader->signature, "FACP")){
 		 	print("Found FADT");
 			FADT = (struct FADT_t*)myheader;
 		 }
+		 if(acpi_compare_signature(myheader->signature, "APIC")){
+				print("Fount MADT with size");
+				print_uint(myheader->length);
+				
+		 }
 	}
 
-
-	if(acpi_compare_signature(FADT->header.signature, "FACP")){
-			uint32_t fadt_size = FADT->header.length;
-			if(fadt_size != sizeof(struct FADT_t)){
-				print("FADT size not equal");
-				print_uint(FADT->header.length);
-				print_uint(sizeof(struct FADT_t));
-			}
-
-			struct ACPISystemDescriptorTableHeader* header = (struct ACPISystemDescriptorTableHeader*)(FADT->X_Dsdt);
 	
-			header = (struct ACPISystemDescriptorTableHeader*)&FADT->X_Dsdt;
-		if(acpi_compare_signature(header->signature, "DSDT")){
-			print("Work DSDT");
-		}else{
-			print("DSDT not work");
-		}
-		if(FADT->X_Dsdt == 0){
-			print("DSDT memory zero");
-		}
-		DSDT = (struct DSDT_t*)FADT->X_Dsdt;
-		//print(DSDT->header.signature);
 
-	}
+
 	
 
 	while(1){

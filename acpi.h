@@ -128,6 +128,43 @@ struct FADT_t
     GenericAddressStructure X_GPE1Block;
 };
 
+
+//APIC ("Advanced Programmable Interrupt Controller")
+//Multiple APIC Description Table (MADT) 
+struct MADT{
+    struct ACPISystemDescriptorTableHeader header;
+    uint32_t local_interrupt_controller_address;
+    uint32_t flags;
+    void* interrupt_controller_structures[];
+};
+
+struct ProcessorLocalAPIC{
+    uint8_t type;
+    uint8_t length;//8 bytes
+    uint8_t ACPIProcessorUID;
+    uint8_t APIC_ID;
+    uint16_t flags;
+};
+
+struct IOAPIC{
+    uint8_t type;
+    uint8_t length;//12bytes
+    uint8_t io_apic_id;
+    uint8_t reserved;
+    uint32_t io_apic_address;
+    uint32_t global_system_interrupt_base;
+};
+//Interrupt Source Override Structure 10bytes
+//Non-Maskable Interrupt (NMI) Source Structure 8bytes
+// Local APIC NMI Structure 6 bytes
+
+struct LocalAPICAddressOverride{
+    uint8_t type;
+    uint8_t length;
+    uint16_t reserved;
+    uint64_t local_APIC_address;
+};
+
 extern struct FADT_t* FADT;
 
 extern struct XSDP_t* XSDP;
