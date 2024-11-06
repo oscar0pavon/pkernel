@@ -102,8 +102,7 @@ bool compare_efi_guid(EFI_GUID* guid1, EFI_GUID* guid2){
 	return true;
 }
 
-
-void load_elf(){
+void efi_get_loaded_image(){
 
 	struct GUID loaded_image_guid = EFI_LOADED_IMAGE_PROTOCOL_GUID;
 	
@@ -118,6 +117,9 @@ void load_elf(){
 		print("got bootloader image");
 	}
 
+}
+
+void efi_get_root_directory(){
 
 	main_device = bootloader_image->device;
 
@@ -136,6 +138,13 @@ void load_elf(){
 	if(open_volumen_status != EFI_SUCCESS){
 		print("open volume error");
 	}
+
+}
+
+void load_elf(){
+
+
+
 
 	efi_status_t open_kernel_status = root_directory->open(
 			root_directory,
@@ -342,10 +351,14 @@ void execute_elf(){
 			sizeof(struct ElfHeader), &kernel_elf_header);
 
 
-	system_table->boot_table->allocate_pool(EFI_LOADER_DATA,
+	efi_status pool_status = system_table->boot_table->allocate_pool(EFI_LOADER_DATA,
 			kernel_elf_header.program_header_number_of_entries * 
 			kernel_elf_header.program_header_entry_size,
 			(void**)kernel_program_headers)	;
+
+	if(pool_status != EFI_SUCCESS){
+		print("ERROR allocating pool");
+	}
 
 	read_fixed(opened_kernel_file,
 			kernel_elf_header.program_header_offset, 
@@ -368,9 +381,12 @@ void execute_elf(){
 
 	image_size = image_end - image_begin;
 
-	system_table->boot_table->allocate_pages(EFI_ALLOCATE_ANY_PAGES,
+	efi_status alloc = system_table->boot_table->allocate_pages(EFI_ALLOCATE_ANY_PAGES,
 			EFI_LOADER_DATA, image_size / page_size,
 			&image_address);
+	if(alloc != EFI_SUCCESS){
+		print("ERROR allocating any pages");
+	}
 
 	print("Allocated memory for ELF");
 
@@ -502,15 +518,18 @@ Status efi_main(
 
 	efi_handle = in_efi_handle;
 	
-
 	efi_log(u"Pavon Kernel");
-
 
 	get_graphics_output_protocol();	
 	system_table->out->clear_screen(system_table->out);	
 
-	//now we can use print()
+	//now we can use print() for print to the frame buffer
 	clear();
+
+	//configure efi for load files from root file system	
+	efi_get_loaded_image();
+	efi_get_root_directory();
+	//now we can load files
 
 
 	get_acpi_table();
