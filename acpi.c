@@ -2,6 +2,7 @@
 
 struct FADT_t* FADT = NULL;
 struct XSDP_t* XSDP = NULL;
+struct DSDT_t* DSDT = NULL;
 
 void acpi_find_FADT(){
 

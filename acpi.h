@@ -41,6 +41,12 @@ struct __attribute__((packed, aligned(4))) XSDT_t {
   uint64_t entries[];
 };
 
+//Differentiated System Description Table Fields (DSDT)
+struct __attribute__((packed, aligned(4))) DSDT_t {
+  struct ACPISystemDescriptorTableHeader header;
+  uint64_t entries[];
+};
+
 typedef struct {
 	uint8_t address_space;
 	uint8_t bit_width;
@@ -66,6 +72,7 @@ struct FADT_t
     uint8_t  AcpiDisable;
     uint8_t  S4BIOS_REQ;
     uint8_t  PSTATE_Control;
+
     uint32_t PM1aEventBlock;
     uint32_t PM1bEventBlock;
     uint32_t PM1aControlBlock;
@@ -74,6 +81,7 @@ struct FADT_t
     uint32_t PMTimerBlock;
     uint32_t GPE0Block;
     uint32_t GPE1Block;
+
     uint8_t  PM1EventLength;
     uint8_t  PM1ControlLength;
     uint8_t  PM2ControlLength;
@@ -82,10 +90,12 @@ struct FADT_t
     uint8_t  GPE1Length;
     uint8_t  GPE1Base;
     uint8_t  CStateControl;
+
     uint16_t WorstC2Latency;
     uint16_t WorstC3Latency;
     uint16_t FlushSize;
     uint16_t FlushStride;
+
     uint8_t  DutyOffset;
     uint8_t  DutyWidth;
     uint8_t  DayAlarm;
@@ -121,6 +131,8 @@ struct FADT_t
 extern struct FADT_t* FADT;
 
 extern struct XSDP_t* XSDP;
+
+extern struct DSDT_t* DSDT;
 
 bool acpi_compare_signature(char* signature1, char* signature2);
 
