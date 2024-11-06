@@ -1,9 +1,10 @@
 #include "ps2_keyboard.h"
 #include <stdbool.h>
+#include <stdint.h>
 
 #include "../console.h"
 
-typedef char key[3];
+typedef uint8_t key[3];
 
 key keyboard[] = {
 	{PS2_KEYBOARD_A_PRESSED,PS2_KEYBOARD_A_RELEASED,'a'}
@@ -22,7 +23,7 @@ char ps2_keyboard_get_input(byte (*port_60)()) {
   buff[1] = '\0';
 
   if (proccess_key) {
-    if (ps2_response == PS2_KEYBOARD_A_RELEASED) {
+    if (ps2_response == keyboard[current_procces_key][1]) {
       proccess_key = false;
       return keyboard[current_procces_key][2];
     }
