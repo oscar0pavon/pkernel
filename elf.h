@@ -68,7 +68,7 @@ static const uint32_t PF_X = 1;
 static const uint32_t PF_W = 2;
 static const uint32_t PF_R = 4;
 
-struct __attribute__((packed, aligned(8))) ElfProgramHeader {
+struct ElfProgramHeader {
     uint32_t type;
     uint32_t flags;
     uint64_t offset;

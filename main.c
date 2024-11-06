@@ -325,8 +325,9 @@ efi_status_t read_fixed(
 	return status;
 }
 
-static void get_image_size(
+static void elf_get_image_size(
 	struct ElfHeader* kernel_header,
+	uint64_t* elf_in_memory, 
 	struct ElfProgramHeader* program_headers,
 	uint64_t alignment,
 	uint64_t *out_begin,
@@ -334,16 +335,16 @@ static void get_image_size(
 {
 	*out_begin = UINT64_MAX;
 	*out_end = 0;
-
+	uint32_t offset = sizeof(struct ElfProgramHeader);
 	for (size_t i = 0; i < kernel_header->program_header_number_of_entries; ++i) {
 		struct ElfProgramHeader *program_header = &program_headers[i];
-		uint64_t phdr_begin, phdr_end;
+		uint64_t program_header_begin, program_header_end;
 		uint64_t align = alignment;
 
 		print_uint(program_header->type);
 		print("Program header size");
 		print_byte_hex(program_header->file_size);
-
+		print_uint(program_header->file_size);
 		if (program_header->type != PT_LOAD){
 			print("Not a PT_LOAD");
 			continue;
@@ -352,15 +353,15 @@ static void get_image_size(
 		if (program_header->alignment > align)
 			align = program_header->alignment;
 
-		phdr_begin = program_header->virtual_address;
-		phdr_begin &= ~(align - 1);
-		if (*out_begin > phdr_begin)
-			*out_begin = phdr_begin;
+		program_header_begin = program_header->virtual_address;
+		program_header_begin &= ~(align - 1);
+		if (*out_begin > program_header_begin)
+			*out_begin = program_header_begin;
 
-		phdr_end = program_header->virtual_address + program_header->memory_size + align - 1;
-		phdr_end &= ~(align - 1);
-		if (*out_end < phdr_end)
-			*out_end = phdr_end;
+		program_header_end = program_header->virtual_address + program_header->memory_size + align - 1;
+		program_header_end&= ~(align - 1);
+		if (*out_end < program_header_end)
+			*out_end = program_header_end;
 	}
 }
 
@@ -402,22 +403,28 @@ void execute_elf(){
 	print_uint(kernel_elf->program_header_number_of_entries);
 	print("Program header entry size");
 	print_uint(kernel_elf->program_header_entry_size);
+	uint32_t size_program_header = sizeof(struct ElfProgramHeader);
+	print("Program header struct size");
+	print_uint(size_program_header);
+
 
 
 	uint64_t allocate_pool_size = kernel_elf->program_header_number_of_entries *
 		kernel_elf->program_header_entry_size;
 
-
-	struct ElfProgramHeader* program1 = (struct ElfProgramHeader*)kernel_in_memory[kernel_elf->program_header_offset];
+	uint32_t offset = sizeof(struct ElfProgramHeader);
+	uint8_t* kernel_in_memory_in_bytes = (uint8_t*)kernel_in_memory;
+	struct ElfProgramHeader* program1 = kernel_in_memory_in_bytes+64;
 	print("Memory program size");
 	print_uint(program1->file_size);
+	print_uint(program1->alignment);
 	
+	struct ElfProgramHeader* program2 = &program1[1];
+	print("Memory program2 size");
+	print_uint(program2->file_size);
+	print_uint(program2->alignment);
 
 	print("Readed ELF headers");
-
-	while(1){
-
-	}
 
 	uint64_t page_size = 4096;
 	uint64_t image_begin;
@@ -426,8 +433,9 @@ void execute_elf(){
 	uint64_t image_address;
 
 
-	get_image_size(&kernel_elf_header,
+	elf_get_image_size(kernel_elf,
 			kernel_in_memory, 
+			program1, 
 			page_size, &image_begin, &image_end);
 
 	image_size = image_end - image_begin;
@@ -449,7 +457,7 @@ void execute_elf(){
 	//set_memory(my_stack_memory,0,image_size/page_size);
 
 	for (size_t i = 0; i < kernel_elf_header.program_header_number_of_entries; ++i) {
-		struct ElfProgramHeader *program_header = &kernel_program_headers[i];
+		struct ElfProgramHeader *program_header = &program1[i];
 
 		uint64_t program_header_address;
 
@@ -457,25 +465,29 @@ void execute_elf(){
 			continue;
 
 		program_header_address = image_address + program_header->virtual_address- image_begin;
-		status = read_fixed(
-			opened_kernel_file,
-			program_header->offset,
-			program_header->file_size,
-			(void *)program_header_address);
-		if (status != EFI_SUCCESS) {
-			print("Failed to read elf segment in memory");
-		}
+	
+		// status = read_fixed(
+		// 	opened_kernel_file,
+		// 	program_header->offset,
+		// 	program_header->file_size,
+		// 	(void *)program_header_address);
+		// if (status != EFI_SUCCESS) {
+		// 	print("Failed to read elf segment in memory");
+		// }
 	
 
-		reserve_memory(program_header_address,
-				program_header_address + program_header->memory_size);
+		// reserve_memory(program_header_address,
+		// 		program_header_address + program_header->memory_size);
 
 
 	}
 
+	while(1){
+
+	}
 	print("ELF loaded in memory");
 
-	uint64_t kernel_image_entry = image_address + kernel_elf_header.e_entry - image_begin;	
+	uint64_t kernel_image_entry = image_address + kernel_elf->e_entry - image_begin;	
 
 	//void (ELFABI *entry)(struct ReserveMemory*, size_t);
 
