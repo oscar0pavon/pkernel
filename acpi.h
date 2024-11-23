@@ -20,9 +20,6 @@ struct XSDP_t {
 	uint8_t reserved[3];
 }__attribute__ ((packed));
 
-
-
-
 struct ACPISystemDescriptorTableHeader{
 	char signature[4];
 	uint32_t length;
@@ -34,7 +31,6 @@ struct ACPISystemDescriptorTableHeader{
 	uint32_t creator_id;
 	uint32_t creator_revision;
 }__attribute__ ((packed));
-
 
 struct __attribute__((packed, aligned(4))) XSDT_t {
   struct ACPISystemDescriptorTableHeader header;
