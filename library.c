@@ -37,3 +37,17 @@ void *copy_memory(void *destination, const void *source, size_t size)
 		*to++ = *from++;
 	return destination;
 }
+
+int compare_memory(void* pointer, void* cmp, size_t size)
+{
+	int n = 0;
+	char* p = pointer;
+	char* p2 = cmp;
+
+	for(size_t i = 0;i < size;i++)
+	{
+		if(p[i] != p2[i])
+			return p[i] - p2[i];
+	}
+	return 0;
+}
