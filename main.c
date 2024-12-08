@@ -32,6 +32,10 @@ struct ElfHeader kernel_elf_header;
 struct ElfProgramHeader* kernel_program_headers;
 char * kernel_bin;
 
+inline void hang(){
+	while(1){};
+}
+
 void efi_log(uint16_t* text){
 	
 	system_table->out->output_string(system_table->out,text);
@@ -374,6 +378,22 @@ void execute_kernel(){
 	}
 	print("Kernel loaded");
 
+
+	int (ELFABI*entry)();
+
+	int (*kernel_main)();
+
+	//entry = (int(ELFABI*)())kernel_in_memory;
+
+	kernel_main = kernel_in_memory;
+
+	int kernel_result = (*kernel_main)();
+
+	print("Kernel executed");
+
+	print_uint(kernel_result);
+
+	hang();	
 
 
 }

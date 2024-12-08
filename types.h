@@ -11,5 +11,6 @@ typedef uint64_t EfiPhysicalAddress;
 typedef uint8_t byte;
 
 #define ELFABI __attribute__((sysv_abi))
+#define SYSVABI __attribute__((sysv_abi))
 
 #endif
