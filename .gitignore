@@ -5,3 +5,5 @@
 *.so
 pkernel
 pboot
+BOOTX64.EFI
+NvVars

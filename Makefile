@@ -23,17 +23,15 @@ pkernel: pboot binary_interface.o kernel.o
 	ld binary_interface.o kernel.o -T binary.ld -o pkernel
 
 
-release:
+install:
 	cp pkernel /boot
 	cp pboot /boot
-
-install:
-	cp pkernel /root/virtual_machine/disk/
-	cp pboot /root/virtual_machine/disk/
 
 clean:
 	make -C boot clean
 	rm -f *.o
 	rm -f pkernel
 	rm -f pboot
+	rm -f ./virtual_machine/disk/pkernel
+	rm -f ./virtual_machine/disk/EFI/BOOT/BOOTX64.EFI
 
