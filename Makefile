@@ -1,17 +1,9 @@
-CC := clang
-LD := ld.lld
-
-CFLAGS := -ffreestanding -MMD -mno-red-zone -std=c11 \
-	-target x86_64-unknown-windows
-LDFLAGS := -flavor link -subsystem:efi_application -entry:efi_main
+CC := cc
+CFLAGS := -ffreestanding -fno-stack-check -fno-stack-protector -fPIC -fshort-wchar -mno-red-zone -maccumulate-outgoing-args
 
 SRCS := $(wildcard *.c)
 OBJS := $(SRCS:c=o)
-OBJS := $(filter-out kernel.o, $(OBJS))
 
-GCCFLAGS := -ffreestanding -fno-stack-check -fno-stack-protector -fPIC -fshort-wchar -mno-red-zone -maccumulate-outgoing-args
-
-.PHONY: all clean install
 
 all: pkernel
 
@@ -21,31 +13,27 @@ $(OBJS): %.o : %.c
 ps2_keyboard.o: ./drivers/ps2_keyboard.c
 	$(CC)	$(CFLAGS) -c ./drivers/ps2_keyboard.c
 
-kernel.o: kernel.c
-	cc $(GCCFLAGS) -c kernel.c -o kernel.o
-
-
 binary_interface.o: binary_interface.s
 	fasm binary_interface.s binary_interface.o
 
-kernel: binary_interface.o kernel.o
-	ld binary_interface.o kernel.o -T binary.ld -o kernel
+pboot.efi:
+	make -C ./boot
 
-pkernel: $(OBJS) ps2_keyboard.o kernel
-	$(LD) $(LDFLAGS) ${OBJS} ps2_keyboard.o -out:/root/virtual_machine/disk/pkernel #-verbose 
+pkernel: pboot.efi binary_interface.o kernel.o
+	ld binary_interface.o kernel.o -T binary.ld -o pkernel
 
-#-include $(SRCS:.c=.d)
 
 release:
-	cp /root/virtual_machine/disk/pkernel /boot/pkernel
+	cp pkernel /boot
+	cp pboot.efi /boot
 
 install:
-	cp kernel /root/virtual_machine/disk/
+	cp pkernel /root/virtual_machine/disk/
+	cp pboot.efi /root/virtual_machine/disk/
 
 clean:
+	make -C boot clean
 	rm -f *.o
-	rm -f *.d
-	rm -f *.bin
-	rm -f *.elf
-	rm -f *.so
+	rm -f pkernel
+	rm -f pboot.efi
 

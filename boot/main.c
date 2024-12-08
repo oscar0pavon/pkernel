@@ -2,7 +2,7 @@
 #include "types.h"
 #include "gop.h"
 
-#include "console.h"
+#include "../console.h"
 
 #include "acpi.h"
 
@@ -10,7 +10,6 @@
 
 #include "library.h"
 
-#include "drivers/ps2_keyboard.h"
 
 struct SystemTable* system_table;
 Handle* efi_handle;
@@ -163,7 +162,7 @@ void load_kernel(){
 	efi_status_t open_kernel_status = root_directory->open(
 			root_directory,
 			&opened_kernel_file,
-			u"kernel",
+			u"pkernel",
 			EFI_FILE_MODE_READ,
 			EFI_FILE_READ_ONLY
 			);	
@@ -360,54 +359,6 @@ void parse_FADT(){
 	}
 }
 
-void input_loop(){
-
-	load_bin();
-
-
-	char kernel_txt[3];
-	set_memory(kernel_txt, 0, 3);
-	read_fixed(opened_kernel_file,0,3,(void*)&kernel_txt);
-	print("Readed kernel bin");
-
-	print(kernel_txt);
-	byte(*kernel_main)(); 
-	kernel_main = kernel_txt;
-
-	print("calling kernel.bin");
-	
-	print_byte_hex(10);
-	print_byte_hex(PS2_KEYBOARD_D_RELEASED);
-
-	exit_boot_services();
-
-	print_in_line_buffer_number(12,"d");
-	print_in_line_buffer_number(12,"d");
-	print_in_line_buffer_number(12,"d");
-	print_in_line_buffer_number(12,"d");
-	print_in_line_buffer_number(12,"d");
-
-	while(1){
-
-		char restul = 'a';
-		char buff[2];
-		buff[0] = '\0';
-		buff[1] = '\0';
-
-
-		char input = ps2_keyboard_get_input(kernel_main);
-		buff[0] = input;
-		if(input != '\0'){
-			print_in_line_buffer_number(12,buff);
-		}
-
-
-		print_in_line_number(9, buff);
-	}
-
-	print("executed successfully");
-
-}
 
 efi_status efi_main(Handle in_efi_handle, struct SystemTable *in_system_table)
 {

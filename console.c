@@ -1,9 +1,8 @@
 #include "console.h"
-#include "library.h"
+#include "boot/library.h"
 #include "framebuffer.h"
-#include "gop.h"
+#include "boot/gop.h"
 
-#include "library.h"
 
 #include <stdint.h>
 

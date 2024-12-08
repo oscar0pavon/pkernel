@@ -2,7 +2,7 @@
 
 
 #include "font.h"
-#include "gop.h"
+#include "boot/gop.h"
 
 
 void draw_character(unsigned char character, int x, int y,
