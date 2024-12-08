@@ -18,22 +18,13 @@ all: pkernel
 $(OBJS): %.o : %.c
 	$(CC) $(CFLAGS) -c $<
 
-kernel.bin: kernel.s
-	fasm kernel.s kernel.bin
-
 ps2_keyboard.o: ./drivers/ps2_keyboard.c
 	$(CC)	$(CFLAGS) -c ./drivers/ps2_keyboard.c
-
-fasm.elf: fasmelf.s
-	fasm fasmelf.s fasm.elf
 
 kernel.o: kernel.c
 	gcc $(GCCFLAGS) -c kernel.c -o kernel.o
 
-kernel.so: kernel.o
-	ld kernel.o -nostdlib -znocombreloc -shared -Bsymbolic -o kernel.so 	
-
-pkernel: $(OBJS) kernel.bin fasm.elf ps2_keyboard.o kernel.so
+pkernel: $(OBJS) ps2_keyboard.o
 	$(LD) $(LDFLAGS) ${OBJS} ps2_keyboard.o -out:/root/virtual_machine/disk/pkernel #-verbose 
 
 #-include $(SRCS:.c=.d)
@@ -42,9 +33,6 @@ release:
 	cp /root/virtual_machine/disk/pkernel /boot/pkernel
 
 install:
-	cp kernel.bin /root/virtual_machine/disk/kernel.bin
-	cp fasm.elf /root/virtual_machine/disk/fasm.elf
-	cp kernel.so /root/virtual_machine/disk/kernel.so
 
 clean:
 	rm -f *.o
