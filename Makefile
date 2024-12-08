@@ -22,9 +22,12 @@ ps2_keyboard.o: ./drivers/ps2_keyboard.c
 	$(CC)	$(CFLAGS) -c ./drivers/ps2_keyboard.c
 
 kernel.o: kernel.c
-	gcc $(GCCFLAGS) -c kernel.c -o kernel.o
+	cc $(GCCFLAGS) -c kernel.c -o kernel.o
 
-pkernel: $(OBJS) ps2_keyboard.o
+kernel: kernel.o
+	ld kernel.o -T binary.ld -o kernel
+
+pkernel: $(OBJS) ps2_keyboard.o kernel
 	$(LD) $(LDFLAGS) ${OBJS} ps2_keyboard.o -out:/root/virtual_machine/disk/pkernel #-verbose 
 
 #-include $(SRCS:.c=.d)
@@ -33,6 +36,7 @@ release:
 	cp /root/virtual_machine/disk/pkernel /boot/pkernel
 
 install:
+	cp kernel /root/virtual_machine/disk/
 
 clean:
 	rm -f *.o

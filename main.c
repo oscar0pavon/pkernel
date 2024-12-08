@@ -174,6 +174,23 @@ void load_elf(){
 	print("elf file loaded");
 }
 
+void load_kernel(){
+	efi_status_t open_kernel_status = root_directory->open(
+			root_directory,
+			&opened_kernel_file,
+			u"kernel",
+			EFI_FILE_MODE_READ,
+			EFI_FILE_READ_ONLY
+			);	
+
+	if(open_kernel_status != EFI_SUCCESS){
+		print("can't open kernel file");
+	}
+	print("kernel file loaded");
+
+}
+
+
 void get_graphics_output_protocol(){
 
 	struct GUID gop_guid = EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID;
@@ -323,6 +340,42 @@ efi_status_t read_fixed(
 	}
 
 	return status;
+}
+
+void execute_kernel(){
+
+	efi_status_t status;
+
+	status = opened_kernel_file->set_position(opened_kernel_file, 0xFFFFFFFFFFFFFFFF)	;
+	uint64_t kernel_file_size;
+	status = opened_kernel_file->get_position(opened_kernel_file, &kernel_file_size);
+
+	print("Kernel file size");
+	print_uint(kernel_file_size);
+
+	uint64_t* kernel_in_memory;
+
+	efi_status pool_status = system_table->boot_table->allocate_pool(EFI_LOADER_DATA,
+			kernel_file_size,
+			(void**)kernel_in_memory)	;
+	
+	if(pool_status != EFI_SUCCESS){
+		print("ERROR allocating pool");
+	}else{
+		print("Memory allocated for kernel");
+	}
+
+	
+
+	status = read_fixed(opened_kernel_file, 0, 
+			kernel_file_size, kernel_in_memory);
+	if(status != EFI_SUCCESS){
+		print("ERROR loading kernel in memory");
+	}
+	print("Kernel loaded");
+
+
+
 }
 
 static void elf_get_image_size(
@@ -609,8 +662,11 @@ efi_status efi_main(Handle in_efi_handle, struct SystemTable *in_system_table)
 	//now we can load files
 
 
-	load_elf();
-	execute_elf();
+	//load_elf();
+	//execute_elf();
+
+	load_kernel();
+	execute_kernel();
 
 	get_acpi_table();
 
