@@ -10,6 +10,7 @@
 
 #include "library.h"
 
+#include "../framebuffer.h"
 
 SystemTable* system_table;
 Handle* efi_handle;
@@ -164,24 +165,7 @@ void get_graphics_output_protocol(){
 
 	struct GUID gop_guid = EFI_GRAPHICS_OUTPUT_PROTOCOL_GUID;
 	
-
-	Status status = system_table->boot_table->open_protocol(efi_handle,
-			&gop_guid,
-			(void **)&graphics_output_protocol,
-			efi_handle,
-			0,
-			EFI_OPEN_PROTOCOL_BY_HANDLE_PROTOCOL)	;
-
-	if(status != EFI_SUCCESS){
-		efi_log(u"Can't get Graphics Output Protocol with open_protocol");
-	}
-
-	status = system_table->boot_table->handle_protocol(efi_handle, &gop_guid, 
-			(void**)&graphics_output_protocol);
-
-	if(status != EFI_SUCCESS){
-		efi_log(u"Can't get Graphics Output Protocol with handle_protocol");
-	}
+	Status status;
 
 	status = system_table->boot_table->locate_protocol(&gop_guid,
 			(void*)0, (void**)&graphics_output_protocol);
@@ -211,8 +195,22 @@ void get_graphics_output_protocol(){
 	native_mode = graphics_output_protocol->mode->mode;
 	number_of_modes = graphics_output_protocol->mode->max_mode;
 
-	console_horizonal = graphics_output_protocol->mode->mode_info->horizontal_resolution;
-	console_vertical = graphics_output_protocol->mode->mode_info->vertical_resolution;
+
+	//setup framebuffer
+	frame_buffer.frame_buffer = 
+		graphics_output_protocol->mode->frame_buffer_base_address;
+	frame_buffer.pixel_per_scan_line = 
+		graphics_output_protocol->mode->mode_info->pixel_per_scan_line;
+	
+	frame_buffer.horizontal_resolution =
+		graphics_output_protocol->mode->mode_info->horizontal_resolution;
+
+	frame_buffer.vertical_resolution =
+		graphics_output_protocol->mode->mode_info->vertical_resolution;
+
+	//setup console resolution
+	console_horizonal = frame_buffer.horizontal_resolution;
+	console_vertical = frame_buffer.vertical_resolution; 
 
 }
 

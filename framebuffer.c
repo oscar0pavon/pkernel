@@ -4,6 +4,7 @@
 #include "font.h"
 #include "boot/gop.h"
 
+FrameBuffer frame_buffer;
 
 void draw_character(unsigned char character, int x, int y,
 		int foreground, int background)
