@@ -25,15 +25,15 @@ pkernel: pboot.efi binary_interface.o kernel.o
 
 release:
 	cp pkernel /boot
-	cp pboot.efi /boot
+	cp pboot /boot
 
 install:
 	cp pkernel /root/virtual_machine/disk/
-	cp pboot.efi /root/virtual_machine/disk/
+	cp pboot /root/virtual_machine/disk/
 
 clean:
 	make -C boot clean
 	rm -f *.o
 	rm -f pkernel
-	rm -f pboot.efi
+	rm -f pboot
 

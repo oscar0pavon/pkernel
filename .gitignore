@@ -3,3 +3,5 @@
 *.elf
 *.bin
 *.so
+pkernel
+pboot

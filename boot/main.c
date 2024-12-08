@@ -360,14 +360,14 @@ void parse_FADT(){
 }
 
 
-efi_status efi_main(Handle in_efi_handle, struct SystemTable *in_system_table)
+void pboot(Handle in_efi_handle, SystemTable *in_system_table)
 {
 
 	system_table = in_system_table;
 
 	efi_handle = in_efi_handle;
 	
-	efi_log(u"Pavon Kernel");
+	efi_log(u"pboot");
 
 	get_graphics_output_protocol();	
 	system_table->out->clear_screen(system_table->out);	
@@ -427,13 +427,12 @@ efi_status efi_main(Handle in_efi_handle, struct SystemTable *in_system_table)
 	
 
 
-	
+	//we never come here	
 
 	while(1){
 
 	}
 
-	return 0;
 }
 
 

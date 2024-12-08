@@ -3,6 +3,7 @@
 #define __EFI_H__
 
 #include "types.h"
+#include <stdint.h>
 
 #define EFI_LOADED_IMAGE_PROTOCOL_GUID \
 	{ 0x5b1b31a1, 0x9562, 0x11d2, \
@@ -23,9 +24,9 @@ typedef uint64_t efi_uint_t;
 
 typedef uint64_t efi_status_t;
 
-typedef efi_status_t efi_status;
+typedef uint64_t Status;
 
-typedef efi_status_t Status;
+typedef efi_status_t efi_status;
 
 static const efi_status_t EFI_SUCCESS = 0;
 
@@ -91,6 +92,8 @@ struct SystemTable{
 	uint64_t number_of_table_entries;
 	EfiConfigurationTable* configuration_tables;//configuration table
 };
+
+typedef struct SystemTable SystemTable;
 
 
 struct MemoryDescriptor{
