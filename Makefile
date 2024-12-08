@@ -24,8 +24,12 @@ ps2_keyboard.o: ./drivers/ps2_keyboard.c
 kernel.o: kernel.c
 	cc $(GCCFLAGS) -c kernel.c -o kernel.o
 
-kernel: kernel.o
-	ld kernel.o -T binary.ld -o kernel
+
+binary_interface.o: binary_interface.s
+	fasm binary_interface.s binary_interface.o
+
+kernel: binary_interface.o kernel.o
+	ld binary_interface.o kernel.o -T binary.ld -o kernel
 
 pkernel: $(OBJS) ps2_keyboard.o kernel
 	$(LD) $(LDFLAGS) ${OBJS} ps2_keyboard.o -out:/root/virtual_machine/disk/pkernel #-verbose 

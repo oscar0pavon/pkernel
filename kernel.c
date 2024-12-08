@@ -1,6 +1,7 @@
 
 
-int main(){
-
-	return 6;
+int main(int number){
+	
+	number = number + 10;
+	return number;
 }

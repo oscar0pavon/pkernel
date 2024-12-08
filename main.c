@@ -314,15 +314,14 @@ void execute_kernel(){
 	print("Kernel loaded");
 
 
-	int (ELFABI*entry)();
 
-	int (*kernel_main)();
+	int (*kernel)(int);
 
-	//entry = (int(ELFABI*)())kernel_in_memory;
 
-	kernel_main = kernel_in_memory;
+	kernel = kernel_in_memory;
 
-	int kernel_result = (*kernel_main)();
+	int kernel_result = 0;
+	kernel_result = (*kernel)(5);
 
 	print("Kernel executed");
 
