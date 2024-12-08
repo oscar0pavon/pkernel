@@ -16,10 +16,10 @@ ps2_keyboard.o: ./drivers/ps2_keyboard.c
 binary_interface.o: binary_interface.s
 	fasm binary_interface.s binary_interface.o
 
-pboot.efi:
+pboot:
 	make -C ./boot
 
-pkernel: pboot.efi binary_interface.o kernel.o
+pkernel: pboot binary_interface.o kernel.o
 	ld binary_interface.o kernel.o -T binary.ld -o pkernel
 
 
