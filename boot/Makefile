@@ -10,7 +10,7 @@ OBJS := $(SRCS:c=o)
 
 all: pboot
 
-$(OBJS): %.o : %.c
+%.o : %.c
 	$(CC) $(CFLAGS) -c $<
 
 console.o: ../console.c

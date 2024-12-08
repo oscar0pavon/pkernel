@@ -11,7 +11,7 @@
 #include "library.h"
 
 
-struct SystemTable* system_table;
+SystemTable* system_table;
 Handle* efi_handle;
 
 struct LoadedImageProtocol* bootloader_image;
@@ -25,7 +25,7 @@ struct FileProtocol* opened_kernel_file;
 
 EfiGraphicsOutputProtocol* graphics_output_protocol;	
 
-char * kernel_bin;
+uint64_t* kernel_in_memory;
 
 inline void hang(){
 	while(1){};
@@ -112,8 +112,8 @@ void efi_get_loaded_image(){
 			0,
 			EFI_OPEN_PROTOCOL_GET_PROTOCOL)	;
 
-	if(loaded_image_status == EFI_SUCCESS){
-		print("got bootloader image");
+	if(loaded_image_status != EFI_SUCCESS){
+		print("Error bootloader image!");
 	}
 
 }
@@ -158,21 +158,6 @@ void load_bin(){
 }
 
 
-void load_kernel(){
-	efi_status_t open_kernel_status = root_directory->open(
-			root_directory,
-			&opened_kernel_file,
-			u"pkernel",
-			EFI_FILE_MODE_READ,
-			EFI_FILE_READ_ONLY
-			);	
-
-	if(open_kernel_status != EFI_SUCCESS){
-		print("can't open kernel file");
-	}
-	print("kernel file loaded");
-
-}
 
 
 void get_graphics_output_protocol(){
@@ -280,7 +265,18 @@ efi_status_t read_fixed(
 	return status;
 }
 
-void execute_kernel(){
+void load_kernel(){
+	efi_status_t open_kernel_status = root_directory->open(
+			root_directory,
+			&opened_kernel_file,
+			u"pkernel",
+			EFI_FILE_MODE_READ,
+			EFI_FILE_READ_ONLY
+			);	
+
+	if(open_kernel_status != EFI_SUCCESS){
+		print("can't open kernel file");
+	}
 
 	efi_status_t status;
 
@@ -288,30 +284,26 @@ void execute_kernel(){
 	uint64_t kernel_file_size;
 	status = opened_kernel_file->get_position(opened_kernel_file, &kernel_file_size);
 
-	print("Kernel file size");
-	print_uint(kernel_file_size);
-
-	uint64_t* kernel_in_memory;
-
+	
+	uint64_t* memory;
 	efi_status pool_status = system_table->boot_table->allocate_pool(EFI_LOADER_DATA,
 			kernel_file_size,
-			(void**)kernel_in_memory)	;
+			(void**)memory)	;
 	
 	if(pool_status != EFI_SUCCESS){
-		print("ERROR allocating pool");
-	}else{
-		print("Memory allocated for kernel");
+		print("ERROR allocating pool for kernel");
 	}
 
-	
+	kernel_in_memory = memory;
 
 	status = read_fixed(opened_kernel_file, 0, 
 			kernel_file_size, kernel_in_memory);
 	if(status != EFI_SUCCESS){
 		print("ERROR loading kernel in memory");
 	}
-	print("Kernel loaded");
+}
 
+void execute_kernel(){
 
 
 	int (*kernel)(int);
