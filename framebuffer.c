@@ -5,6 +5,8 @@
 
 FrameBuffer frame_buffer;
 
+void* frame_buffer_in_memory;
+
 void plot_pixel(int x, int y, uint32_t pixel){
 *((uint32_t*)(frame_buffer.frame_buffer 
 			+ 4 * frame_buffer.pixel_per_scan_line

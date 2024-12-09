@@ -28,12 +28,11 @@ void *set_memory(void *pointer, int value, size_t size)
 	return pointer;
 }
 
-void *copy_memory(void *destination, const void *source, size_t size)
+void copy_memory(void *destination, const void *source, size_t size)
 {
-	const char *from = source;
-	char *to = destination;
+	const unsigned char *from = source;
+	unsigned char *to = destination;
 
 	for (size_t i = 0; i < size; ++i)
 		*to++ = *from++;
-	return destination;
 }

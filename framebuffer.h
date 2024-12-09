@@ -13,6 +13,7 @@ struct FrameBuffer{
 typedef struct FrameBuffer FrameBuffer;
 
 extern FrameBuffer frame_buffer;
+extern void* frame_buffer_in_memory;
 
 void draw_character(unsigned char character, int x, int y,
 		int foreground, int background);

@@ -373,6 +373,22 @@ void pboot(Handle in_efi_handle, SystemTable *in_system_table)
 
 
 	load_kernel();
+
+
+	uint64_t* memory;
+	efi_status pool_status = system_table->boot_table->allocate_pool(EFI_LOADER_DATA,
+			sizeof(struct FrameBuffer),
+			(void**)memory)	;
+	
+	if(pool_status != EFI_SUCCESS){
+		print("ERROR allocating pool for kernel");
+	}
+
+	copy_memory(memory,&frame_buffer,sizeof(struct FrameBuffer));
+
+	frame_buffer_in_memory = memory;
+
+
 	execute_kernel();
 
 	get_acpi_table();

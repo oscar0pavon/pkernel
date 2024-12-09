@@ -7,7 +7,8 @@ OBJS := $(SRCS:c=o)
 
 all: pkernel
 
-$(OBJS): %.o : %.c
+
+%.o : %.c
 	$(CC) $(CFLAGS) -c $<
 
 ps2_keyboard.o: ./drivers/ps2_keyboard.c
@@ -16,11 +17,16 @@ ps2_keyboard.o: ./drivers/ps2_keyboard.c
 binary_interface.o: binary_interface.s
 	fasm binary_interface.s binary_interface.o
 
+library.o: boot/library.c
+	$(CC)	$(CFLAGS) -c boot/library.c
+
+
+
 pboot:
 	make -C ./boot
 
-pkernel: pboot binary_interface.o kernel.o
-	ld binary_interface.o kernel.o -T binary.ld -o pkernel
+pkernel: pboot binary_interface.o $(OBJS) library.o
+	ld binary_interface.o $(OBJS) library.o -T binary.ld -o pkernel
 
 
 install:
