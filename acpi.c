@@ -5,6 +5,7 @@
 struct FADT_t* FADT = NULL;
 struct XSDP_t* XSDP = NULL;
 struct DSDT_t* DSDT = NULL;
+struct XSDT_t* XSDT = NULL;
 
 void acpi_find_FADT(){
 
@@ -45,12 +46,12 @@ void parse_FADT(){
 	}
 }
 
-void parse_XDSP(){
+void parse_XDST(){
 
-	struct XSDT_t* XSDT = (struct XSDT_t*)(XSDP->XSDT_address);
 	if(acpi_compare_signature(XSDT->header.signature, "XSDT")){
 		print("is XSDT table");
 	}
+
 
 
 

@@ -171,6 +171,10 @@ extern struct XSDP_t* XSDP;
 
 extern struct DSDT_t* DSDT;
 
+extern struct XSDT_t* XSDT;
+
 bool acpi_compare_signature(char* signature1, char* signature2);
+
+void parse_XDST();
 
 #endif

@@ -9,12 +9,12 @@
 int console_current_line = 0;
 
 
-const uint32_t black = 0x000000;
-const uint32_t white = 0xFFFFFF;
-const uint32_t red_pixel = 0xFF0000;
-const uint32_t green_pixel = 0x00FF00;
-const uint32_t blue_pixel = 0x0000FF;
-const uint32_t background_color = 0x282C34;
+static const uint32_t black = 0x000000;
+static const uint32_t white = 0xFFFFFF;
+static const uint32_t red_pixel = 0xFF0000;
+static const uint32_t green_pixel = 0x00FF00;
+static const uint32_t blue_pixel = 0x0000FF;
+static const uint32_t background_color = 0x282C34;
 
 int console_horizonal = 0;
 int console_vertical = 0;

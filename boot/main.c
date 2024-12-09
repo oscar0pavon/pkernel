@@ -10,6 +10,8 @@
 
 #include "../framebuffer.h"
 
+#include "../acpi.h"
+
 SystemTable* system_table;
 Handle* efi_handle;
 
@@ -26,7 +28,8 @@ EfiGraphicsOutputProtocol* graphics_output_protocol;
 
 uint64_t* kernel_in_memory;
 
-void* XSDP;
+struct XSDP_t* acpi_table = NULL;
+
 
 inline void hang(){
 	while(1){};
@@ -224,10 +227,22 @@ void get_acpi_table(){
 		EfiConfigurationTable* table = &system_table->configuration_tables[i];
 		
 		if(compare_efi_guid(&table->vendor_guid,&acpi_guid)){
-			XSDP = table->vendor_table;
+			acpi_table = table->vendor_table;
+			break;
 		}
 
 	}
+	if(acpi_table == NULL){
+		print("Acpi not work");
+		hang();
+	}
+
+
+	struct XSDT_t* xsdt = (struct XSDT_t*)acpi_table->XSDT_address;
+	print("XSDT");
+
+
+
 }
 
 
@@ -303,10 +318,10 @@ void load_kernel(){
 void execute_kernel(){
 
 
-	void (*kernel)(void*);
+	void (*kernel)(void*,uint64_t);
 
 
-	kernel = (void (*)(void*))kernel_in_memory;
+	kernel = (void (*)(void*,uint64_t))kernel_in_memory;
 
 	int kernel_result = 0;
 	//kernel_result = (*kernel)(frame_buffer_in_memory);
@@ -316,7 +331,7 @@ void execute_kernel(){
 	//call pkernel
 	exit_boot_services();
 
-	(*kernel)(frame_buffer_in_memory);
+	(*kernel)(frame_buffer_in_memory,acpi_table->XSDT_address);
 
 	//never come here
 	print("Kernel executed");
