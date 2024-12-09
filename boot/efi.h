@@ -77,6 +77,8 @@ typedef struct {
 	void* vendor_table;
 }EfiConfigurationTable;
 
+typedef struct TextOutputProtocol TextOutputProtocol;
+
 struct SystemTable{
 	struct TableHeader header;
 	uint16_t *unused1;//firmware vendor
@@ -84,7 +86,7 @@ struct SystemTable{
 	void *unused3;//console in handle
 	struct InputProtocol *input; //ConIn
 	void *unused5;//console out handle
-	struct efi_simple_text_output_protocol *out;//console out
+	TextOutputProtocol *out;//console out
 	void *unused6;//standard error handle
 	void *unused7;//standard error
 	void *unused8;//runtime services
@@ -286,35 +288,22 @@ struct BootTable
 };
 
 
-struct efi_simple_text_output_protocol {
-	efi_status (*unused1)(struct efi_simple_text_output_protocol *, bool);
+struct TextOutputProtocol{
+	void (*unused1)();
 
-	efi_status (*output_string)(
-		struct efi_simple_text_output_protocol *self,
+	Status (*output_string)(
+		TextOutputProtocol *self,
 		uint16_t *string);
 
-	efi_status (*unused2)(
-		struct efi_simple_text_output_protocol *,
-		uint16_t *);
-	efi_status (*unused3)(
-		struct efi_simple_text_output_protocol *,
-		efi_uint_t, efi_uint_t *, efi_uint_t *);
-	efi_status (*unused4)(
-		struct efi_simple_text_output_protocol *,
-		efi_uint_t);
-	efi_status (*unused5)(
-		struct efi_simple_text_output_protocol *,
-		efi_uint_t);
+	void (*unused2)();
+	void (*unused3)();
+	void (*unused4)();
+	void (*unused5)();
 
-	efi_status (*clear_screen)(
-		struct efi_simple_text_output_protocol *self);
+	Status (*clear_screen)(TextOutputProtocol *self);
 
-	efi_status (*unused6)(
-		struct efi_simple_text_output_protocol *,
-		efi_uint_t, efi_uint_t);
-	efi_status (*unused7)(
-		struct efi_simple_text_output_protocol *,
-		bool);
+	void (*unused6)();
+	void (*unused7)();
 
 	void *unused8;
 };

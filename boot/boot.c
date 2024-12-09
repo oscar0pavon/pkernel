@@ -358,6 +358,9 @@ void pboot(Handle in_efi_handle, SystemTable *in_system_table)
 	get_graphics_output_protocol();	
 	system_table->out->clear_screen(system_table->out);	
 
+	efi_log(u"Ouput");
+
+	hang();
 	//now we can use print() for print to the frame buffer
 	clear();
 
