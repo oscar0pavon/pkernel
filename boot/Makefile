@@ -19,9 +19,11 @@ console.o: ../console.c
 framebuffer.o: ../framebuffer.c
 	$(CC) $(CFLAGS) -c ../framebuffer.c
 
+acpi.o: ../acpi.c
+	$(CC) $(CFLAGS) -c ../acpi.c
 
-pboot: $(OBJS) console.o framebuffer.o
-	$(LD) $(LDFLAGS) ${OBJS} console.o framebuffer.o -out:../pboot
+pboot: $(OBJS) console.o framebuffer.o acpi.o
+	$(LD) $(LDFLAGS) ${OBJS} console.o framebuffer.o acpi.o -out:../pboot
 
 
 clean:

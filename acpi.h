@@ -35,6 +35,8 @@ struct ACPISystemDescriptorTableHeader{
 	uint32_t creator_revision;
 }__attribute__ ((packed));
 
+typedef struct ACPISystemDescriptorTableHeader ACPISystemDescriptorTableHeader;
+
 
 struct __attribute__((packed, aligned(4))) XSDT_t {
   struct ACPISystemDescriptorTableHeader header;

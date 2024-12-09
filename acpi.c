@@ -29,9 +29,9 @@ void parse_FADT(){
 				print_uint(sizeof(struct FADT_t));
 			}
 
-			struct ACPISystemDescriptorTableHeader* header = (struct ACPISystemDescriptorTableHeader*)(FADT->X_Dsdt);
+			ACPISystemDescriptorTableHeader* header = (ACPISystemDescriptorTableHeader*)(FADT->X_Dsdt);
 	
-			header = (struct ACPISystemDescriptorTableHeader*)&FADT->X_Dsdt;
+			header = (ACPISystemDescriptorTableHeader*)&FADT->X_Dsdt;
 		if(acpi_compare_signature(header->signature, "DSDT")){
 			print("Work DSDT");
 		}else{
@@ -46,29 +46,30 @@ void parse_FADT(){
 	}
 }
 
-void parse_XDST(){
+void parse_XDST() {
 
-	if(acpi_compare_signature(XSDT->header.signature, "XSDT")){
-		print("is XSDT table");
-	}
+  if (acpi_compare_signature(XSDT->header.signature, "XSDT")) {
+    print("is XSDT table");
+  }
 
+  uint32_t number_of_entries_XSDT =
+      (XSDT->header.length - sizeof(ACPISystemDescriptorTableHeader)) / 8;
 
+  for (int i = 0; i < number_of_entries_XSDT; i++) {
+    ACPISystemDescriptorTableHeader *myheader =
+        (ACPISystemDescriptorTableHeader *)XSDT->entries[i];
 
-
-	uint32_t number_of_entries_XSDT = (XSDT->header.length - sizeof(struct ACPISystemDescriptorTableHeader))/8;
-
-	for(int i = 0; i < number_of_entries_XSDT; i++){
-		 struct ACPISystemDescriptorTableHeader* myheader = (struct ACPISystemDescriptorTableHeader*)XSDT->entries[i];
-		 //print(myheader->signature);
-		 if(acpi_compare_signature(myheader->signature, "FACP")){
-		 	print("Found FADT");
-			FADT = (struct FADT_t*)myheader;
-		 }
-		 if(acpi_compare_signature(myheader->signature, "APIC")){
-				print("Fount MADT with size");
-				print_uint(myheader->length);
-				
-		 }
-	}
-
+    // print(myheader->signature);
+    if (acpi_compare_signature(myheader->signature, "FACP")) {
+      print("Found FADT with size");
+      print_uint(myheader->length);
+      FADT = (struct FADT_t *)myheader;
+      parse_FADT();
+      continue;
+    }
+    if (acpi_compare_signature(myheader->signature, "APIC")) {
+      print("Fount MADT with size");
+      print_uint(myheader->length);
+    }
+  }
 }

@@ -238,9 +238,10 @@ void get_acpi_table(){
 	}
 
 
-	struct XSDT_t* xsdt = (struct XSDT_t*)acpi_table->XSDT_address;
+	XSDT = (struct XSDT_t*)acpi_table->XSDT_address;
 	print("XSDT");
-
+	
+	parse_XDST();
 
 
 }
@@ -389,18 +390,20 @@ void pboot(Handle in_efi_handle, SystemTable *in_system_table)
 
 	efi_log(u"Ouput");
 
-	//now we can use print() for print to the frame buffer
-	clear();
 
 	//configure efi for load files from root file system	
 	efi_get_loaded_image();
 	efi_get_root_directory();
 	//now we can load files
 	
-	create_file();
+	//create_file();
 
+	get_acpi_table();
 
 	hang();
+
+	//now we can use print() for print to the frame buffer
+	clear();
 
 	load_kernel();
 
@@ -418,7 +421,6 @@ void pboot(Handle in_efi_handle, SystemTable *in_system_table)
 
 	frame_buffer_in_memory = memory;
 
-	get_acpi_table();
 
 	execute_kernel();
 
