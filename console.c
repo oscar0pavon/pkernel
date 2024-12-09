@@ -1,7 +1,6 @@
 #include "console.h"
 #include "boot/library.h"
 #include "framebuffer.h"
-#include "boot/gop.h"
 
 
 #include <stdint.h>

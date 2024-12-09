@@ -2,9 +2,14 @@
 
 
 #include "font.h"
-#include "boot/gop.h"
 
 FrameBuffer frame_buffer;
+
+void plot_pixel(int x, int y, uint32_t pixel){
+*((uint32_t*)(frame_buffer.frame_buffer 
+			+ 4 * frame_buffer.pixel_per_scan_line
+			* y + 4 * x)) = pixel;
+}
 
 void draw_character(unsigned char character, int x, int y,
 		int foreground, int background)
