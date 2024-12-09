@@ -304,14 +304,22 @@ void load_kernel(){
 void execute_kernel(){
 
 
-	int (*kernel)(int);
+	void (*kernel)(void*);
 
 
-	kernel = kernel_in_memory;
+	kernel = (void (*)(void*))kernel_in_memory;
 
 	int kernel_result = 0;
-	kernel_result = (*kernel)(5);
+	//kernel_result = (*kernel)(frame_buffer_in_memory);
 
+
+	//goodbye EFI
+	//call pkernel
+	exit_boot_services();
+
+	(*kernel)(frame_buffer_in_memory);
+
+	//never come here
 	print("Kernel executed");
 
 	print_uint(kernel_result);
