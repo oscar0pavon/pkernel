@@ -343,7 +343,36 @@ void execute_kernel(){
 
 }
 
+void create_file(){
+	FileProtocol* my_file;
+	Status status = root_directory->open(
+			root_directory,
+			&my_file,
+			u"my_file.txt",
+			EFI_FILE_MODE_WRITE | 
+      EFI_FILE_MODE_READ  | 
+      EFI_FILE_MODE_CREATE,
+			EFI_FILE_ARCHIVE
+			);	
 
+	if(status != EFI_SUCCESS){
+		efi_log(u"can't open new file");
+	}
+
+	char content[] = "hello from the bootloader";
+	uint64_t size = sizeof(content);
+
+	my_file->write(my_file,&size,content);
+	
+	if(status != EFI_SUCCESS){
+		efi_log(u"can't write new file");
+	}
+
+	status = my_file->close(my_file);
+	if(status != EFI_SUCCESS){
+		efi_log(u"can't close new file");
+	}
+}
 
 
 void pboot(Handle in_efi_handle, SystemTable *in_system_table)
@@ -360,7 +389,6 @@ void pboot(Handle in_efi_handle, SystemTable *in_system_table)
 
 	efi_log(u"Ouput");
 
-	hang();
 	//now we can use print() for print to the frame buffer
 	clear();
 
@@ -368,8 +396,11 @@ void pboot(Handle in_efi_handle, SystemTable *in_system_table)
 	efi_get_loaded_image();
 	efi_get_root_directory();
 	//now we can load files
+	
+	create_file();
 
 
+	hang();
 
 	load_kernel();
 

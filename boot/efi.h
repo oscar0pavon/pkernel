@@ -33,7 +33,11 @@ static const efi_status_t EFI_SUCCESS = 0;
 static const uint32_t EFI_OPEN_PROTOCOL_BY_HANDLE_PROTOCOL = 0x00000001;
 static const uint32_t EFI_OPEN_PROTOCOL_GET_PROTOCOL = 0x00000002;
 
-static const uint64_t EFI_FILE_MODE_READ = 0x0000000000000001;
+#define EFI_FILE_MODE_READ 0x0000000000000001
+#define EFI_FILE_MODE_WRITE 0x0000000000000002
+#define EFI_FILE_MODE_CREATE 0x8000000000000000
+
+#define EFI_FILE_ARCHIVE 0x0000000000000020
 
 static const uint64_t EFI_FILE_READ_ONLY = 0x1;
 
@@ -132,7 +136,7 @@ typedef struct FileProtocol{
 
     Status (*read)(FileProtocol*, efi_uint_t *, void *);
 
-    void (*unused2)();
+    Status (*write)(FileProtocol*, uint64_t* buffer_size, void* buffer);
 
     Status (*get_position)(FileProtocol*, uint64_t *);
     Status (*set_position)(FileProtocol*, uint64_t);
