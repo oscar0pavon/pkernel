@@ -115,30 +115,30 @@ enum MemoryType{
 	EFI_LOADER_DATA,
 };
 
+typedef struct FileProtocol FileProtocol;
 
-
-struct FileProtocol{
+typedef struct FileProtocol{
     uint64_t revision;
-    efi_status_t (*open)(
-        struct FileProtocol* self,
-        struct FileProtocol** new_handle,
+    Status (*open)(
+        FileProtocol* self,
+        FileProtocol** new_handle,
         uint16_t * file_name,
         uint64_t open_mode,
         uint64_t attributes);
 
-    efi_status_t (*close)(struct FileProtocol*);
+    Status (*close)(FileProtocol*);
 
     void (*unused1)();
 
-    efi_status_t (*read)(struct FileProtocol*, efi_uint_t *, void *);
+    Status (*read)(FileProtocol*, efi_uint_t *, void *);
 
     void (*unused2)();
 
-    efi_status_t (*get_position)(struct FileProtocol*, uint64_t *);
-    efi_status_t (*set_position)(struct FileProtocol*, uint64_t);
+    Status (*get_position)(FileProtocol*, uint64_t *);
+    Status (*set_position)(FileProtocol*, uint64_t);
 
-    efi_status_t (*get_info)(
-        struct FileProtocol*, struct GUID*, efi_uint_t *, void *);
+    Status (*get_info)(
+        FileProtocol*, struct GUID*, efi_uint_t *, void *);
 
     void (*unused6)();
     void (*unused7)();
@@ -146,7 +146,7 @@ struct FileProtocol{
     void (*unused9)();
     void (*unused10)();
     void (*unused11)();
-};
+}FileProtocol;
 
 #define EFI_SIMPLE_FILE_SYSTEM_PROTOCOL_GUID \
     { 0x0964e5b22, 0x6459, 0x11d2, \
