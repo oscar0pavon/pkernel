@@ -4,8 +4,6 @@
 
 #include "../console.h"
 
-#include "acpi.h"
-
 #include <stdint.h>
 
 #include "library.h"
@@ -27,6 +25,8 @@ struct FileProtocol* opened_kernel_file;
 EfiGraphicsOutputProtocol* graphics_output_protocol;	
 
 uint64_t* kernel_in_memory;
+
+void* XSDP;
 
 inline void hang(){
 	while(1){};
@@ -224,7 +224,6 @@ void get_acpi_table(){
 		EfiConfigurationTable* table = &system_table->configuration_tables[i];
 		
 		if(compare_efi_guid(&table->vendor_guid,&acpi_guid)){
-			efi_log(u"Found ACPI 2.0 table");
 			XSDP = table->vendor_table;
 		}
 
@@ -330,32 +329,6 @@ void execute_kernel(){
 }
 
 
-void parse_FADT(){
-
-	if(acpi_compare_signature(FADT->header.signature, "FACP")){
-			uint32_t fadt_size = FADT->header.length;
-			if(fadt_size != sizeof(struct FADT_t)){
-				print("FADT size not equal");
-				print_uint(FADT->header.length);
-				print_uint(sizeof(struct FADT_t));
-			}
-
-			struct ACPISystemDescriptorTableHeader* header = (struct ACPISystemDescriptorTableHeader*)(FADT->X_Dsdt);
-	
-			header = (struct ACPISystemDescriptorTableHeader*)&FADT->X_Dsdt;
-		if(acpi_compare_signature(header->signature, "DSDT")){
-			print("Work DSDT");
-		}else{
-			print("DSDT not work");
-		}
-		if(FADT->X_Dsdt == 0){
-			print("DSDT memory zero");
-		}
-		DSDT = (struct DSDT_t*)FADT->X_Dsdt;
-		//print(DSDT->header.signature);
-
-	}
-}
 
 
 void pboot(Handle in_efi_handle, SystemTable *in_system_table)
@@ -396,50 +369,9 @@ void pboot(Handle in_efi_handle, SystemTable *in_system_table)
 
 	frame_buffer_in_memory = memory;
 
-
-	execute_kernel();
-
 	get_acpi_table();
 
-
-//#########################################################
-//#########################################################
-//################ Full control ###########################
-//#########################################################
-
-
-
-	print("Horizontal Resolution:");
-	print_uint(console_horizonal);
-	print("Vertical Resolution:");
-	print_uint(console_vertical);
-
-
-	struct XSDT_t* XSDT = (struct XSDT_t*)(XSDP->XSDT_address);
-	if(acpi_compare_signature(XSDT->header.signature, "XSDT")){
-		print("is XSDT table");
-	}
-
-
-
-	uint32_t number_of_entries_XSDT = (XSDT->header.length - sizeof(struct ACPISystemDescriptorTableHeader))/8;
-
-	for(int i = 0; i < number_of_entries_XSDT; i++){
-		 struct ACPISystemDescriptorTableHeader* myheader = (struct ACPISystemDescriptorTableHeader*)XSDT->entries[i];
-		 //print(myheader->signature);
-		 if(acpi_compare_signature(myheader->signature, "FACP")){
-		 	print("Found FADT");
-			FADT = (struct FADT_t*)myheader;
-		 }
-		 if(acpi_compare_signature(myheader->signature, "APIC")){
-				print("Fount MADT with size");
-				print_uint(myheader->length);
-				
-		 }
-	}
-
-	
-
+	execute_kernel();
 
 	//we never come here	
 
