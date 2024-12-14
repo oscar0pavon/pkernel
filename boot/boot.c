@@ -398,9 +398,8 @@ void pboot(Handle in_efi_handle, SystemTable *in_system_table)
 	
 	//create_file();
 
-	get_acpi_table();
+	//get_acpi_table();
 
-	hang();
 
 	//now we can use print() for print to the frame buffer
 	clear();
