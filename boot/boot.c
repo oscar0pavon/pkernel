@@ -224,7 +224,7 @@ void get_acpi_table(){
 	EFI_GUID acpi_guid = EFI_ACPI_20_TABLE_GUID;
 
 	for(int i = 0; i < system_table->number_of_table_entries; i++){
-		EfiConfigurationTable* table = &system_table->configuration_tables[i];
+		ConfigurationTable* table = &system_table->configuration_tables[i];
 		
 		if(compare_efi_guid(&table->vendor_guid,&acpi_guid)){
 			acpi_table = table->vendor_table;
