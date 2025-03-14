@@ -1,5 +1,5 @@
 
-#include "boot/library.h"
+#include "library.h"
 #include "console.h"
 #include "framebuffer.h"
 #include "acpi.h"

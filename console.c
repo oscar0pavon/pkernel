@@ -1,5 +1,5 @@
 #include "console.h"
-#include "boot/library.h"
+#include "library.h"
 #include "framebuffer.h"
 
 

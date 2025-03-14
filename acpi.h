@@ -6,7 +6,7 @@
 #ifndef _ACPI_H_
 #define _ACPI_H_
 
-#include "boot/types.h"
+#include "types.h"
 
 struct XSDP_t {
 	char signature[8];

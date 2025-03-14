@@ -15,11 +15,8 @@ ps2_keyboard.o: ./drivers/ps2_keyboard.c
 binary_interface.o: binary_interface.s
 	fasm binary_interface.s binary_interface.o
 
-library.o: boot/library.c
-	$(CC)	$(CFLAGS) -c boot/library.c
-
-pkernel: binary_interface.o $(OBJS) library.o
-	ld binary_interface.o $(OBJS) library.o -T binary.ld -o pkernel
+pkernel: binary_interface.o $(OBJS)
+	ld binary_interface.o $(OBJS) -T binary.ld -o pkernel
 
 install:
 	cp pkernel /root/pboot/virtual_machine/disk/pkernel
