@@ -9,15 +9,17 @@ port_60:
   in eax,60h
   ret
 
+;di port
 input:
-  mov eax,edi
-  mov dx,ax
+  mov dx,di
   in eax,dx
   ret
 
+;edi data
+;si port
 output:
-  mov eax,edi
-  mov dx,ax
+  mov eax,edi;data
+  mov dx,si;port
   out dx,eax
   ret
 

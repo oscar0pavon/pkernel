@@ -12,11 +12,14 @@ all: pkernel
 ps2_keyboard.o: ./drivers/ps2_keyboard.c
 	$(CC)	$(CFLAGS) -c ./drivers/ps2_keyboard.c
 
+pci.o: ./drivers/pci.c
+	$(CC)	$(CFLAGS) -c ./drivers/pci.c
+
 binary_interface.o: binary_interface.s
 	fasm binary_interface.s binary_interface.o
 
 assembly := input_output.o
-drivers := ps2_keyboard.o
+drivers := ps2_keyboard.o pci.o
 
 input_output.o: input_output.s
 	fasm input_output.s input_output.o

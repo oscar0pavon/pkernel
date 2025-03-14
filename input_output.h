@@ -7,6 +7,6 @@
 extern byte port_60();
 
 extern u32 input(u32);
-extern u32 output(u32);
+extern u32 output(u32 data, u16 port);
 
 #endif

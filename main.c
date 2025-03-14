@@ -5,6 +5,7 @@
 #include "acpi.h"
 
 #include "input.h"
+#include "drivers/pci.h"
 
 void hang(){
 	while(1){};
@@ -21,6 +22,7 @@ void main(void* in_frame_buffer,uint64_t acpi_table){
 	//parse_XDST();
 
 	//print("parsed acpi");
+	print_pci_list();
 
 
 	print("--You are in owner space now--");
