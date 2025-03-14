@@ -2,6 +2,7 @@
 
 
 #include "font.h"
+#include "library.h"
 
 static FrameBuffer frame_buffer;
 
@@ -9,6 +10,10 @@ void* frame_buffer_in_memory;
 
 FrameBuffer* get_framebuffer(){
 	return &frame_buffer;
+}
+
+void init_frambuffer(FrameBuffer* in_framebuffer){
+	copy_memory(get_framebuffer(), in_framebuffer, sizeof(struct FrameBuffer));
 }
 
 void plot_pixel(int x, int y, uint32_t pixel){

@@ -21,5 +21,6 @@ void draw_character(unsigned char character, int x, int y,
 void plot_pixel(int x, int y, uint32_t pixel);
 
 FrameBuffer* get_framebuffer();
+void init_frambuffer(FrameBuffer* in_framebuffer);
 
 #endif
