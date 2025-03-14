@@ -9,9 +9,11 @@ void hang(){
 }
 
 void pkernel(void* in_frame_buffer,uint64_t acpi_table){
-	copy_memory(&frame_buffer, in_frame_buffer, sizeof(struct FrameBuffer));
+	FrameBuffer* framebuffer = get_framebuffer();
+	copy_memory(framebuffer, in_frame_buffer, sizeof(struct FrameBuffer));
 	clear();
 	print("Hello World! by: pkernel");
+	return;
 
 	print("test");
 

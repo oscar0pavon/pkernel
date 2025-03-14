@@ -30,8 +30,8 @@ pkernel: pboot binary_interface.o $(OBJS) library.o
 
 
 install:
-	cp pkernel /boot
-	cp pboot /boot
+	cp pkernel /root/pboot/virtual_machine/disk/pkernel
+	#cp pboot /boot
 
 clean:
 	make -C boot clean

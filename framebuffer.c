@@ -3,9 +3,13 @@
 
 #include "font.h"
 
-FrameBuffer frame_buffer;
+static FrameBuffer frame_buffer;
 
 void* frame_buffer_in_memory;
+
+FrameBuffer* get_framebuffer(){
+	return &frame_buffer;
+}
 
 void plot_pixel(int x, int y, uint32_t pixel){
 *((uint32_t*)(frame_buffer.frame_buffer 

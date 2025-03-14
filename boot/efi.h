@@ -1,4 +1,3 @@
-
 #ifndef __EFI_H__
 #define __EFI_H__
 

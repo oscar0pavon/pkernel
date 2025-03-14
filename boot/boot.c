@@ -200,20 +200,21 @@ void get_graphics_output_protocol(){
 
 
 	//setup framebuffer
-	frame_buffer.frame_buffer = 
+	FrameBuffer* framebuffer = get_framebuffer();
+	framebuffer->frame_buffer = 
 		graphics_output_protocol->mode->frame_buffer_base_address;
-	frame_buffer.pixel_per_scan_line = 
+	framebuffer->pixel_per_scan_line = 
 		graphics_output_protocol->mode->mode_info->pixel_per_scan_line;
 	
-	frame_buffer.horizontal_resolution =
+	framebuffer->horizontal_resolution =
 		graphics_output_protocol->mode->mode_info->horizontal_resolution;
 
-	frame_buffer.vertical_resolution =
+	framebuffer->vertical_resolution =
 		graphics_output_protocol->mode->mode_info->vertical_resolution;
 
 	//setup console resolution
-	console_horizonal = frame_buffer.horizontal_resolution;
-	console_vertical = frame_buffer.vertical_resolution; 
+	console_horizonal = framebuffer->horizontal_resolution;
+	console_vertical = framebuffer->vertical_resolution; 
 
 }
 
@@ -330,7 +331,7 @@ void execute_kernel(){
 
 	//goodbye EFI
 	//call pkernel
-	exit_boot_services();
+	//exit_boot_services();
 
 	(*kernel)(frame_buffer_in_memory,acpi_table->XSDT_address);
 
@@ -416,7 +417,9 @@ void pboot(Handle in_efi_handle, SystemTable *in_system_table)
 		print("ERROR allocating pool for kernel");
 	}
 
-	copy_memory(memory,&frame_buffer,sizeof(struct FrameBuffer));
+	FrameBuffer* framebuffer = get_framebuffer();
+
+	copy_memory(memory,framebuffer,sizeof(struct FrameBuffer));
 
 	frame_buffer_in_memory = memory;
 
