@@ -18,7 +18,7 @@ static bool error_procces = false;
 char ps2_keyboard_get_input() {
   int keyboard_size = sizeof(keyboard) / 3;
 
-  byte ps2_response = port_60();
+  byte ps2_response = input(0x60);
 
   char buff[2];
   buff[0] = '\0';
