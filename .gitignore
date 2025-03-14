@@ -7,3 +7,4 @@ pkernel
 pboot
 BOOTX64.EFI
 NvVars
+virtual_machine/disk/*
