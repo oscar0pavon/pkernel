@@ -14,6 +14,7 @@ key keyboard[] = {
 int current_procces_key = 254;
 bool proccess_key = false;
 bool error_procces = false;
+
 char ps2_keyboard_get_input(byte (*port_60)()) {
   int keyboard_size = sizeof(keyboard) / 3;
 
