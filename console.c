@@ -6,7 +6,7 @@
 #include <stdint.h>
 
 
-int console_current_line = 0;
+static int console_current_line = 0;
 
 
 static const uint32_t black = 0x000000;
@@ -16,10 +16,7 @@ static const uint32_t green_pixel = 0x00FF00;
 static const uint32_t blue_pixel = 0x0000FF;
 static const uint32_t background_color = 0x282C34;
 
-int console_horizonal = 0;
-int console_vertical = 0;
-
-int console_line_buffer_number = 0;
+static int console_line_buffer_number = 0;
 
 void print_in_line_buffer_number(uint8_t line_number, char* string){
  int char_count = string_length(string);
@@ -58,9 +55,9 @@ void print(const char* string){
 }
 
 void clear(){
-
-	for(int y = 0; y < console_horizonal; y++){
-		for(int x = 0; x < console_vertical; x++){
+  FrameBuffer* framebuffer = get_framebuffer();
+	for(int y = 0; y < framebuffer->horizontal_resolution; y++){
+		for(int x = 0; x < framebuffer->vertical_resolution; x++){
 			plot_pixel(x, y, background_color);
 		}
 	}
