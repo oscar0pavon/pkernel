@@ -13,7 +13,6 @@ void pkernel(void* in_frame_buffer,uint64_t acpi_table){
 	copy_memory(framebuffer, in_frame_buffer, sizeof(struct FrameBuffer));
 	clear();
 	print("Hello World! by: pkernel");
-	return;
 
 	print("test");
 
