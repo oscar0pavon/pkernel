@@ -8,6 +8,7 @@
 #define PS2_KEYBOARD_D_PRESSED 0x20
 #define PS2_KEYBOARD_D_RELEASED 0xA0
 
-char ps2_keyboard_get_input(byte(*port_60)());
+
+char ps2_keyboard_get_input();
 
 #endif

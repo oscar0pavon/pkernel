@@ -2,20 +2,20 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "../console.h"
+#include "../input_output.h"
 
 typedef uint8_t key[3];
 
-key keyboard[] = {
+static key keyboard[2] = {
 	{PS2_KEYBOARD_A_PRESSED,PS2_KEYBOARD_A_RELEASED,'a'},
 	{PS2_KEYBOARD_D_PRESSED,PS2_KEYBOARD_D_RELEASED,'d'}
 };
 
-int current_procces_key = 254;
-bool proccess_key = false;
-bool error_procces = false;
+static int current_procces_key = 254;
+static bool proccess_key = false;
+static bool error_procces = false;
 
-char ps2_keyboard_get_input(byte (*port_60)()) {
+char ps2_keyboard_get_input() {
   int keyboard_size = sizeof(keyboard) / 3;
 
   byte ps2_response = port_60();

@@ -1,23 +1,14 @@
+#include "input.h"
+
+#include "console.h"
+
+#include "drivers/ps2_keyboard.h"
+
 void input_loop(){
 
-	load_bin();
-
-
-	char kernel_txt[3];
-	set_memory(kernel_txt, 0, 3);
-	read_fixed(opened_kernel_file,0,3,(void*)&kernel_txt);
-	print("Readed kernel bin");
-
-	print(kernel_txt);
-	byte(*kernel_main)(); 
-	kernel_main = kernel_txt;
-
-	print("calling kernel.bin");
-	
 	print_byte_hex(10);
 	print_byte_hex(PS2_KEYBOARD_D_RELEASED);
 
-	exit_boot_services();
 
 	print_in_line_buffer_number(12,"d");
 	print_in_line_buffer_number(12,"d");
@@ -33,7 +24,7 @@ void input_loop(){
 		buff[1] = '\0';
 
 
-		char input = ps2_keyboard_get_input(kernel_main);
+		char input = ps2_keyboard_get_input();
 		buff[0] = input;
 		if(input != '\0'){
 			print_in_line_buffer_number(12,buff);
