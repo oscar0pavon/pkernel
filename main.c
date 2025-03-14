@@ -8,7 +8,7 @@ void hang(){
 	while(1){};
 }
 
-void pkernel(void* in_frame_buffer,uint64_t acpi_table){
+void main(void* in_frame_buffer,uint64_t acpi_table){
 	FrameBuffer* framebuffer = get_framebuffer();
 	copy_memory(framebuffer, in_frame_buffer, sizeof(struct FrameBuffer));
 	clear();
