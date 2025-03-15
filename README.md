@@ -4,7 +4,7 @@ pkernel is a kernel for x86_64
 
 # pboot
 For booting you need the bootloader
-https://github.com/oscarpavon/pboot
+https://github.com/oscarpavon/pboot  
 pboot need to be in virtual_machine/disk/EFI/BOOT/BOOTX64.EFI
 
 # Build
@@ -14,5 +14,5 @@ make
 ```
 
 # Building method
-I use GCC for create a raw binary for loading for the bootloader from memory.
+I use GCC and link script for create a raw binary for loading from EFI memory.
 
