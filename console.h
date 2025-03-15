@@ -15,6 +15,8 @@ void print_uint(uint32_t number);
 
 void print_byte_hex(uint8_t number);
 
+void printf(const char* format, ...);
+
 void clear();
 
 #endif

@@ -4,7 +4,7 @@
 
 
 #include <stdint.h>
-
+#include <stdarg.h>
 
 static int console_current_line = 0;
 
@@ -17,6 +17,7 @@ static const uint32_t blue_pixel = 0x0000FF;
 static const uint32_t background_color = 0x282C34;
 
 static int console_line_buffer_number = 0;
+static int console_line_char_counter = 0;
 
 void print_in_line_buffer_number(uint8_t line_number, char* string){
  int char_count = string_length(string);
@@ -149,9 +150,43 @@ void print_uint(uint32_t number){
 
  int char_count = string_length(buf);
  for(int i = 0; i < char_count ; i++){
-	draw_character(buf[i], i*8, console_current_line*16, white, background_color);
+	draw_character(buf[i], (console_line_char_counter+i)*8, console_current_line*16, white, background_color);
  }
+  console_line_char_counter+=char_count-1;
 
- console_current_line++;
+ //console_current_line++;
 }
 
+void printf(const char* format, ...){
+  
+  va_list arguments;
+  
+  va_start(arguments,format);
+  
+  while(*format){
+    if(*format == '%'){
+      format++;
+      if(*format == 'd'){
+        print_uint(va_arg(arguments, int));
+        
+      }
+    }else if(*format == '\n'){
+      console_current_line++;
+      console_line_char_counter=0;
+      format++;
+
+    }
+    else{
+	    draw_character(*format, console_line_char_counter*8, console_current_line*16, white, background_color);
+    }
+    console_line_char_counter++;
+    format++;
+  }
+  
+  va_end(arguments);
+  
+  console_current_line++;
+  console_line_char_counter=0;
+
+
+}
