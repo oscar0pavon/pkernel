@@ -15,7 +15,7 @@ void main(void* in_frame_buffer,uint64_t acpi_table){
 	init_frambuffer(in_frame_buffer);	
 	clear();
 
-	print("pkernel");
+	printf("pkernel");
 
 
 	XSDT = (struct XSDT_t*)acpi_table;
@@ -25,13 +25,15 @@ void main(void* in_frame_buffer,uint64_t acpi_table){
 	//print_pci_list();
 
 
-	print("--You are in owner space now--");
+	printf("--You are in owner space now--\n");
 
 	//printf("number %d",40);
-	printf("first")	;
-	printf("second %d and this %d",34455,555)	;
-	printf("third")	;
-	//printf("test");
+	printf("first\n")	;
+	printf("second\n")	;
+	printf("second %d and this %d\n",34455,555)	;
+	printf("third\n")	;
+	printf("hex %x my man\n",0xfeed1);
+	printf("test");
 
 	//input_loop();
 

@@ -18,7 +18,10 @@ pci.o: ./drivers/pci.c
 binary_interface.o: binary_interface.s
 	fasm binary_interface.s binary_interface.o
 
-assembly := input_output.o
+hexadecimal.o: hexadecimal.s
+	fasm hexadecimal.s hexadecimal.o
+
+assembly := input_output.o hexadecimal.o
 drivers := ps2_keyboard.o pci.o
 
 input_output.o: input_output.s

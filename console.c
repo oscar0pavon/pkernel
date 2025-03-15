@@ -44,16 +44,6 @@ void print_in_line_number(uint8_t line_number, char* string){
  }
 }
 
-void print(const char* string){
- 
- int char_count = string_length(string);
- for(int i = 0; i < char_count ; i++){
-	draw_character(string[i], i*8, console_current_line*16, white, background_color);
- }
-
- console_current_line++;
-
-}
 
 void clear(){
   FrameBuffer* framebuffer = get_framebuffer();
@@ -148,13 +138,18 @@ void print_uint(uint32_t number){
 		*r = c;
 	}
 
- int char_count = string_length(buf);
- for(int i = 0; i < char_count ; i++){
-	draw_character(buf[i], (console_line_char_counter+i)*8, console_current_line*16, white, background_color);
- }
-  console_line_char_counter+=char_count-1;
+ printf(buf);
 
- //console_current_line++;
+}
+
+void print(const char* format){
+ 
+  while(*format){
+	  draw_character(*format, console_line_char_counter*8, console_current_line*16, white, background_color);
+    console_line_char_counter++;
+    format++;
+  }
+
 }
 
 void printf(const char* format, ...){
@@ -166,27 +161,34 @@ void printf(const char* format, ...){
   while(*format){
     if(*format == '%'){
       format++;
-      if(*format == 'd'){
+      if (*format == 'd') {
         print_uint(va_arg(arguments, int));
-        
+      } else if (*format == 's') {
+        char *string = va_arg(arguments, char *);
+        printf(string);
+      } else if (*format == 'x') {
+        int number = va_arg(arguments, int);
+        const char *hex = get_hex_string(number);
+        printf("0x%s", hex);
       }
-    }else if(*format == '\n'){
+      format++;
+    } else if (*format == '\n') {
+      format++;
       console_current_line++;
       console_line_char_counter=0;
-      format++;
 
+    } else {
+      draw_character(*format, console_line_char_counter * 8,
+                     console_current_line * 16, white, background_color);
+      console_line_char_counter++;
+      format++;
     }
-    else{
-	    draw_character(*format, console_line_char_counter*8, console_current_line*16, white, background_color);
-    }
-    console_line_char_counter++;
-    format++;
   }
   
   va_end(arguments);
   
-  console_current_line++;
-  console_line_char_counter=0;
+  //console_current_line++;
+  //console_line_char_counter=0;
 
 
 }
