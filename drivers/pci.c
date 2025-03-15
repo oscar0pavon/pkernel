@@ -28,14 +28,7 @@ int print_pci_list(void) {
         data = read_pci_data(bus, device, func, 0);
 
         if (data != 0xffffffff) {
-          print("Bus");
-          print_uint(bus);
-          print("Device");
-          print_uint(device);
-          print("Func");
-          print_uint(func);
-          print("Vendor");
-          //print_uint(vendor); TODO: create printf
+          printf("Bus %d Device %d Fun %d Vendor %x\n",bus,device,func,data);
         }
       }
     }
