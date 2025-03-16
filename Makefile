@@ -33,6 +33,7 @@ pkernel: binary_interface.o $(OBJS) $(assembly) $(drivers)
 
 install:
 	cp pkernel /root/pboot/virtual_machine/disk/pkernel
+	cp pkernel /boot/pkernel
 
 clean:
 	rm -f *.o

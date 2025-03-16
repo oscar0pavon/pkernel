@@ -6,7 +6,10 @@
 
 extern byte port_60();
 
-extern u32 input(u32);
+extern u32 input(u16);
+extern byte input_byte(u16);
+extern byte output_byte(byte data, u16 port);
 extern u32 output(u32 data, u16 port);
+extern void clear_interptions(void);
 
 #endif
