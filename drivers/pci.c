@@ -85,7 +85,7 @@ int print_pci_list(void) {
     u8 class = register2>>24;
     u8 sub_class = register2>>16;
     if(class == PCI_CLASS_SERIAL_BUS && sub_class == PCI_SUBCLASS_USB_CONTROLLER){
-      printf("USB Controller\n");
+      printf("USB Host controller: %d:%d:%d\n",bus,device,function);
     }
 
     if(device_id == MY_USB_ID){
