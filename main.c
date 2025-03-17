@@ -35,6 +35,7 @@ void main(void* in_frame_buffer,uint64_t acpi_table){
 	//parse_XDST();
 
 	//print("parsed acpi");
+	printf("PCI List\n");
 	print_pci_list();
 	create_base_address();
 
@@ -61,7 +62,8 @@ void main(void* in_frame_buffer,uint64_t acpi_table){
 		}
 	}
 	printf("\n");
-
+	
+	printf("PS/2 Virtual driver\n");
 	input_loop();
 
 	hang();	

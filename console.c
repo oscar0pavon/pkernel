@@ -20,11 +20,8 @@ static int console_line_buffer_number = 0;
 static int console_line_char_counter = 0;
 
 void print_in_line_buffer_number(uint8_t line_number, char* string){
- int char_count = string_length(string);
- for(int i = 0; i < char_count ; i++){
-	draw_character(string[i], (i+console_line_buffer_number)*8, line_number*16, white, background_color);
- }
- console_line_buffer_number+=char_count;
+  console_current_line=line_number;
+  printf("%s",string);
 }
 
 void print_in_curent_line(const char* string){
@@ -33,11 +30,8 @@ void print_in_curent_line(const char* string){
 }
 
 void print_in_line_number(uint8_t line_number, char* string){
-
- int char_count = string_length(string);
- for(int i = 0; i < char_count ; i++){
-	draw_character(string[i], i*8, line_number*16, white, background_color);
- }
+  console_current_line=line_number;
+  printf("%s",string);
 }
 
 
