@@ -19,6 +19,10 @@ static const uint32_t background_color = 0x282C34;
 static int console_line_buffer_number = 0;
 static int console_line_char_counter = 0;
 
+u32 get_background_color(){
+  return background_color;
+}
+
 void print_in_line_buffer_number(uint8_t line_number, char* string){
   console_current_line=line_number;
   printf("%s",string);
@@ -35,14 +39,6 @@ void print_in_line_number(uint8_t line_number, char* string){
 }
 
 
-void clear(){
-  FrameBuffer* framebuffer = get_framebuffer();
-	for(int x = 0; x < framebuffer->horizontal_resolution; x++){
-		for(int y = 0; y < framebuffer->vertical_resolution; y++){
-			plot_pixel(x, y, background_color);
-		}
-	}
-}
 void digit_to_hex(char*buff, uint8_t digit){
 
     if (digit > 9) {

@@ -1,7 +1,7 @@
 #ifndef __CONSOLE_H__
 #define __CONSOLE_H__
 
-#include <stdint.h>
+#include "types.h"
 
 void print(const char* string);
 
@@ -19,6 +19,6 @@ void printf(const char* format, ...);
 
 void clear_current_line();
 
-void clear();
+u32 get_background_color();
 
 #endif
