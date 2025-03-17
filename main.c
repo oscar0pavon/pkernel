@@ -36,6 +36,7 @@ void main(void* in_frame_buffer,uint64_t acpi_table){
 
 	//print("parsed acpi");
 	print_pci_list();
+	create_base_address();
 
 
 	printf("--You are in owner space now--\n");

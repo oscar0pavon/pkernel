@@ -15,13 +15,16 @@ ps2_keyboard.o: ./drivers/ps2_keyboard.c
 pci.o: ./drivers/pci.c
 	$(CC)	$(CFLAGS) -c ./drivers/pci.c
 
+pci_asm.o: ./drivers/pci_asm.s
+	fasm ./drivers/pci_asm.s ./pci_asm.o
+
 binary_interface.o: binary_interface.s
 	fasm binary_interface.s binary_interface.o
 
 hexadecimal.o: hexadecimal.s
 	fasm hexadecimal.s hexadecimal.o
 
-assembly := input_output.o hexadecimal.o
+assembly := input_output.o hexadecimal.o pci_asm.o
 drivers := ps2_keyboard.o pci.o
 
 input_output.o: input_output.s

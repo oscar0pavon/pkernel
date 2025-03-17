@@ -170,6 +170,10 @@ void printf(const char* format, ...){
         int number = va_arg(arguments, int);
         const char *hex = get_hex_string(number);
         printf("0x%s", hex);
+      }else if (*format == 'b') {
+        int number = va_arg(arguments, int);
+        const char *hex = get_hex_string(number);
+        printf("0x%s", hex);
       }
       format++;
     } else if (*format == '\n') {
