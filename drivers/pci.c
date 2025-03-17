@@ -10,7 +10,11 @@ const u32 PCI_CONFIG_DATA    = 0xCFC;
 
 #define PCI_ERROR 0xFFFFFFFF
 
+#define PCI_REGISTER_2 0x8
+#define PCI_REGISTER_3 0xC
+
 #define MY_USB_ID 0x7a60
+
 
 void pci_read_32(u8 bus, u8 device_function, u8 offset, u32* out){
   u32 address = (PCI_ENABLE_BIT | (bus<<16) | (device_function<<8) | (offset & 0xfc));
@@ -72,6 +76,16 @@ int print_pci_list(void) {
     u16 device_id = pci_id>>16;
     printf("Device %d bus %d device %d function %d id: %x\n",\
         device_number,pci_bus,device,function,device_id);
+  
+    u32 register2;
+    pci_read_32(pci_bus,device_function,PCI_REGISTER_2,&register2);
+    printf("Register 2 %x\n",register2);
+    u8 class = register2>>24;
+    u8 sub_class = register2>>16;
+    if(class == 0xC && sub_class == 0x3){
+      printf("USB Controller\n");
+    }
+
 
     if(device_id == MY_USB_ID){
       printf("USB: bus %d device %d function %d id: %x\n",\
@@ -80,7 +94,7 @@ int print_pci_list(void) {
   
     if(function==0){
       u32 address;
-      pci_read_32(pci_bus,device_function,0xC,&address);//register 3 -> 0xC offset
+      pci_read_32(pci_bus,device_function,PCI_REGISTER_3,&address);//register 3 -> 0xC offset
       if(address == 0x00800000){//i don't know what is this value
         device_function +=7;
       }
