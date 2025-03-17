@@ -13,6 +13,9 @@ const u32 PCI_CONFIG_DATA    = 0xCFC;
 #define PCI_REGISTER_2 0x8
 #define PCI_REGISTER_3 0xC
 
+#define PCI_CLASS_SERIAL_BUS 0xC
+#define PCI_SUBCLASS_USB_CONTROLLER 0x3
+
 #define MY_USB_ID 0x7a60
 
 
@@ -79,13 +82,11 @@ int print_pci_list(void) {
   
     u32 register2;
     pci_read_32(pci_bus,device_function,PCI_REGISTER_2,&register2);
-    printf("Register 2 %x\n",register2);
     u8 class = register2>>24;
     u8 sub_class = register2>>16;
-    if(class == 0xC && sub_class == 0x3){
+    if(class == PCI_CLASS_SERIAL_BUS && sub_class == PCI_SUBCLASS_USB_CONTROLLER){
       printf("USB Controller\n");
     }
-
 
     if(device_id == MY_USB_ID){
       printf("USB: bus %d device %d function %d id: %x\n",\
