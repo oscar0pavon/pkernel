@@ -28,12 +28,8 @@ void print_in_line_buffer_number(uint8_t line_number, char* string){
 }
 
 void print_in_curent_line(const char* string){
- 
- int char_count = string_length(string);
- for(int i = 0; i < char_count ; i++){
-	draw_character(string[i], i*8, console_current_line*16, white, background_color);
- }
-
+  clear_current_line();
+  printf("%s",string);
 }
 
 void print_in_line_number(uint8_t line_number, char* string){
@@ -152,6 +148,15 @@ void print(const char* format){
 
 }
 
+void clear_current_line(){
+  u16 save_char_counter = console_line_char_counter;
+  console_line_char_counter=0;
+  for(int i=0; i < save_char_counter; i++ ){
+   printf(" "); 
+  }
+  console_line_char_counter=0;
+}
+
 void printf(const char* format, ...){
   
   va_list arguments;
@@ -171,9 +176,7 @@ void printf(const char* format, ...){
         const char *hex = get_hex_string(number);
         printf("0x%s", hex);
       }else if (*format == 'b') {
-        int number = va_arg(arguments, int);
-        const char *hex = get_hex_string(number);
-        printf("0x%s", hex);
+        //TODO: print binary
       }
       format++;
     } else if (*format == '\n') {
@@ -190,9 +193,5 @@ void printf(const char* format, ...){
   }
   
   va_end(arguments);
-  
-  //console_current_line++;
-  //console_line_char_counter=0;
-
 
 }

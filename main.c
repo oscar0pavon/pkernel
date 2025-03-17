@@ -44,6 +44,7 @@ void main(void* in_frame_buffer,uint64_t acpi_table){
 
 
 	uint64_t tick = 0;
+	u16 seconds = 0;
 	for(int i = 0; i < 100000; i++){
 		byte start_counter = read_pit_count();
 		byte current_count = 0xFE;
@@ -54,9 +55,12 @@ void main(void* in_frame_buffer,uint64_t acpi_table){
 		}
 		tick++;
 		if(tick%5400 == 0){
-			printf("one second\n");
+			clear_current_line();
+			printf("Time: %d",seconds);
+			seconds++;
 		}
 	}
+	printf("\n");
 
 	input_loop();
 
