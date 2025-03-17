@@ -1,4 +1,6 @@
 CC := cc
+ASSEMBLER := ./bin/fasm
+
 CFLAGS := -ffreestanding -fno-stack-check -fno-stack-protector -fPIC -fshort-wchar -mno-red-zone -maccumulate-outgoing-args
 
 SRCS := $(wildcard *.c)
@@ -16,19 +18,19 @@ pci.o: ./drivers/pci.c
 	$(CC)	$(CFLAGS) -c ./drivers/pci.c
 
 pci_asm.o: ./drivers/pci_asm.s
-	fasm ./drivers/pci_asm.s ./pci_asm.o
+	$(ASSEMBLER) ./drivers/pci_asm.s ./pci_asm.o
 
 binary_interface.o: binary_interface.s
-	fasm binary_interface.s binary_interface.o
+	$(ASSEMBLER) binary_interface.s binary_interface.o
 
 hexadecimal.o: hexadecimal.s
-	fasm hexadecimal.s hexadecimal.o
+	$(ASSEMBLER) hexadecimal.s hexadecimal.o
 
 assembly := input_output.o hexadecimal.o pci_asm.o
 drivers := ps2_keyboard.o pci.o
 
 input_output.o: input_output.s
-	fasm input_output.s input_output.o
+	$(ASSEMBLER) input_output.s input_output.o
 
 
 pkernel: binary_interface.o $(OBJS) $(assembly) $(drivers)
