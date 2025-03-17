@@ -37,8 +37,8 @@ void print_in_line_number(uint8_t line_number, char* string){
 
 void clear(){
   FrameBuffer* framebuffer = get_framebuffer();
-	for(int y = 0; y < framebuffer->horizontal_resolution; y++){
-		for(int x = 0; x < framebuffer->vertical_resolution; x++){
+	for(int x = 0; x < framebuffer->horizontal_resolution; x++){
+		for(int y = 0; y < framebuffer->vertical_resolution; y++){
 			plot_pixel(x, y, background_color);
 		}
 	}

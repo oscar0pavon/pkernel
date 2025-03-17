@@ -4,7 +4,7 @@
 #include <stdint.h>
 
 struct FrameBuffer{
-	uint64_t frame_buffer;
+	uint64_t vram;
 	uint32_t pixel_per_scan_line;
 	uint32_t vertical_resolution;
 	uint32_t horizontal_resolution;

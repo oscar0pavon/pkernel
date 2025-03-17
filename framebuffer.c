@@ -3,7 +3,7 @@
 
 #include "font.h"
 #include "library.h"
-
+#include "console.h"
 static FrameBuffer frame_buffer;
 
 void* frame_buffer_in_memory;
@@ -14,12 +14,15 @@ FrameBuffer* get_framebuffer(){
 
 void init_frambuffer(FrameBuffer* in_framebuffer){
 	copy_memory(get_framebuffer(), in_framebuffer, sizeof(struct FrameBuffer));
+	clear();
+	printf("Horizontal %d\n", frame_buffer.horizontal_resolution);
 }
 
 void plot_pixel(int x, int y, uint32_t pixel){
-*((uint32_t*)(frame_buffer.frame_buffer 
-			+ 4 * frame_buffer.pixel_per_scan_line
-			* y + 4 * x)) = pixel;
+  FrameBuffer *framebuffer = get_framebuffer();
+  u8 pixel_format = 4;
+  u32 pitch = pixel_format * framebuffer->pixel_per_scan_line;
+  *((u32*)(framebuffer->vram + pitch * y + pixel_format * x)) = pixel;
 }
 
 void draw_character(unsigned char character, int x, int y,

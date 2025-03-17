@@ -26,7 +26,6 @@ byte read_pit_count(void){
 
 void main(void* in_frame_buffer,uint64_t acpi_table){
 	init_frambuffer(in_frame_buffer);	
-	clear();
 
 	printf("pkernel\n");
 
