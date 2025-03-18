@@ -3,6 +3,9 @@
 #include "../types.h"
 #include "../input_output.h"
 #include "../console.h"
+#include <stdint.h>
+
+#include "xhci.h"
 
 const u32 PCI_ENABLE_BIT     = 0x80000000;
 const u32 PCI_CONFIG_ADDRESS = 0xCF8;
@@ -86,6 +89,16 @@ int print_pci_list(void) {
     u8 sub_class = register2>>16;
     if(class == PCI_CLASS_SERIAL_BUS && sub_class == PCI_SUBCLASS_USB_CONTROLLER){
       printf("USB Host controller: %d:%d:%d\n",bus,device,function);
+      
+      u32 bar0;
+      u32 bar1;
+      pci_read_32(pci_bus,device_function,0x10,&bar0);
+      pci_read_32(pci_bus,device_function,0x14,&bar0);
+      uint64_t base_host_controller = ((uint64_t)bar0 << 32) | bar1;
+      xhci_set_base_address(base_host_controller);
+      xhci_init();
+
+
     }
 
     if(device_id == MY_USB_ID){
