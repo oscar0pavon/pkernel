@@ -2,6 +2,7 @@ format ELF64
 section '.text' executable
   extrn printf
   public create_base_address
+  public convert32_to_64
 ;SystemV binary interface rdi, rsi , rdx, r10, r8  r9	
 
 ; bit 0 to 3 must to be zero
@@ -20,7 +21,9 @@ create_base_address:
   ret
   message2 db "message two",10,0
   
-  
+convert32_to_64:
+  ret
+
 
 
 section '.data' writable

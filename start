@@ -3,5 +3,5 @@ cp pkernel ./virtual_machine/disk
 
 qemu-system-x86_64 -enable-kvm -bios ./virtual_machine/uefi.bios\
   -drive file=fat:rw:./virtual_machine/disk/,format=raw,media=disk\
-  -device qemu-xhci \
+  -device qemu-xhci,id=xhci \
   -m 256M
