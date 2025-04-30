@@ -7,22 +7,6 @@
 
 #include "xhci.h"
 
-const u32 PCI_ENABLE_BIT     = 0x80000000;
-const u32 PCI_CONFIG_ADDRESS = 0xCF8;
-const u32 PCI_CONFIG_DATA    = 0xCFC;
-
-#define PCI_ERROR 0xFFFFFFFF
-
-#define PCI_REGISTER_2 0x8
-#define PCI_REGISTER_3 0xC
-
-#define PCI_CLASS_SERIAL_BUS 0xC
-#define PCI_SUBCLASS_USB_CONTROLLER 0x3
-
-#define MY_USB_ID 0x7a60
-
-#define BAR0 0x10
-#define BAR1 0x14
 
 
 void pci_read_32(u8 bus, u8 device_function, u8 offset, u32* out){
@@ -85,52 +69,26 @@ int print_pci_list(void) {
       continue;
 
     device_number++;
+
+    PciDevice new_pci_device;
+    new_pci_device.bus = pci_bus;
+    new_pci_device.device_funtion = device_function;
+    
     u16 device = device_function>>3;
     u8 function= device_function>>7;
     u16 device_id = pci_id>>16;
     printf("Device %d bus %d device %d function %d id: %x\n",\
         device_number,pci_bus,device,function,device_id);
   
+    //get PCI class and sub class
     u32 register2;
     pci_read_32(pci_bus,device_function,PCI_REGISTER_2,&register2);
     u8 class = register2>>24;
     u8 sub_class = register2>>16;
+
     if(class == PCI_CLASS_SERIAL_BUS && sub_class == PCI_SUBCLASS_USB_CONTROLLER){
-      printf("USB Host controller: %d:%d:%d\n",bus,device,function);
-      u32 register2;
-      pci_read_32(pci_bus,device_function,PCI_REGISTER_2,&register2);
-      printf("Register 2 USB: %x\n",register2);
-      u32 register3;
-      pci_read_32(pci_bus,device_function,PCI_REGISTER_3,&register3);
-      printf("Register 3 USB: %x\n",register3);
-      u32 bar0;
-      u32 bar0_copy;
-      u32 bar1_copy;
-      u32 bar1;
-      pci_read_32(pci_bus,device_function,BAR0,&bar0_copy);
-      printf("BAR0 first read %x\n",bar0_copy);
-      pci_write_32(pci_bus,device_function,BAR0,0xFFFFFFFF);
-      pci_read_32(pci_bus,device_function,BAR0,&bar0);
-      bar0 = ~bar0+1;
-      printf("BAR0 %x\n",bar0);
-      pci_write_32(pci_bus,device_function,BAR0,bar0_copy);
+      xhci_get_base_address(new_pci_device);
 
-
-      pci_read_32(pci_bus,device_function,BAR1,&bar1_copy);
-      printf("BAR1 first read %x\n",bar1_copy);
-      pci_write_32(pci_bus,device_function,BAR1,0xFFFFFFFF);
-      pci_read_32(pci_bus,device_function,BAR1,&bar1);
-      pci_write_32(pci_bus,device_function,BAR1,bar1_copy);
-      bar1 = ~bar1+1;
-      printf("BAR1 %x\n",bar1);
-
-      //uint64_t base_host_controller = ((uint64_t)bar0 << 32) | bar1;
-      uint64_t base_host_controller = (uint64_t)bar0;
-     //   ((uint64_t)bar0 << 32);
-      base_host_controller = (u64)(base_host_controller << 20);
-      printf("Base host: %x\n",base_host_controller);
-      xhci_set_base_address(base_host_controller);
-      xhci_init();
 
 
     }
