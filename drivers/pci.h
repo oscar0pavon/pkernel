@@ -10,6 +10,7 @@
 
 #define PCI_ERROR 0xFFFFFFFF
 
+#define PCI_REGISTER_1 0x4 //command byte
 #define PCI_REGISTER_2 0x8
 #define PCI_REGISTER_3 0xC
 

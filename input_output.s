@@ -18,6 +18,7 @@ clear_interptions:
 
 ;di port
 input:
+  xor eax,eax
   mov dx,di
   in eax,dx
   ret
@@ -35,6 +36,7 @@ output_byte:
   mov dx,si;port
   out dx,ax
   ret
+
 ;edi data
 ;si port
 output:
