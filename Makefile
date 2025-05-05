@@ -1,5 +1,5 @@
 CC := cc
-ASSEMBLER := ./bin/fasm
+ASSEMBLER := ./tools/fasm
 
 CFLAGS := -ffreestanding -fno-stack-check -fno-stack-protector
 CFLAGS += -fPIC -fshort-wchar -mno-red-zone -maccumulate-outgoing-args
