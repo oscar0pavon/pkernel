@@ -3,6 +3,7 @@
 *.elf
 *.bin
 *.so
+*.a
 pkernel
 pboot
 BOOTX64.EFI
