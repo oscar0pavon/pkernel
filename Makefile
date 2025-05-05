@@ -9,7 +9,7 @@ OBJS := $(SRCS:c=o)
 
 assembly_source := $(wildcard *.s)
 assembly_objects := $(assembly_source:%.s=%.o)
-assembly := $(filter-out binary_interface.o, $(assembly_objects))
+assembly := $(filter-out start.o, $(assembly_objects))
 
 assembly += pci_asm.o
 drivers := ps2_keyboard.o pci.o xhci.o
@@ -36,13 +36,13 @@ xhci.o: ./drivers/xhci.c
 pci_asm.o: ./drivers/pci_asm.s
 	$(ASSEMBLER) ./drivers/pci_asm.s ./pci_asm.o
 
-binary_interface.o: binary_interface.s
-	$(ASSEMBLER) binary_interface.s binary_interface.o
+start.o: start.s
+	$(ASSEMBLER) start.s start.o
 
-pkernel: binary_interface.o $(OBJS) $(assembly) $(drivers)
+pkernel: start.o $(OBJS) $(assembly) $(drivers)
 	@echo "Finish!"
 	@echo "You have pkernel"
-	ld binary_interface.o $(OBJS) $(assembly) $(drivers) -T binary.ld -o pkernel
+	ld start.o $(OBJS) $(assembly) $(drivers) -T binary.ld -o pkernel
 
 install:
 	cp pkernel /root/pboot/virtual_machine/disk/pkernel

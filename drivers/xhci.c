@@ -4,10 +4,17 @@
 
 #define U32_MAX 0xFFFFFFFF
 
-static u64 base_address_host_controller;
+static char* base_address_host_controller;
+static char* xhci_operational_registers;
+static char* xhci_runtime_registers;
+
+
+#define HCIVERSION 0x02
+#define RTSOFF 0x18
+
 
 void xhci_set_base_address(u64 address){
-  base_address_host_controller = address;
+  base_address_host_controller = (char*)address;
 }
 
 
@@ -23,12 +30,10 @@ void xhci_get_base_address(PciDevice pci_device){
 
       u32 register1 = 0;//command byte
       pci_read_32(pci_bus,device_function,PCI_REGISTER_1,&register1);
-      printf("Register 1 USB: %x\n",register1);
 
 
       //disable both I/O and memory decoding
       u32 commnad_byte = register1 & 0xFC;
-      printf("Command byte: %x\n",commnad_byte);
       pci_write_32(pci_bus, device_function, PCI_REGISTER_1, commnad_byte);
 
       u32 bar0, bar1;
@@ -50,6 +55,22 @@ void xhci_get_base_address(PciDevice pci_device){
 
 void xhci_init(){
  printf("Base XHCI address %x\n",base_address_host_controller);
- u64 cap_length = *(u64*)base_address_host_controller; 
- printf("XHCI Cap lengh %x\n",cap_length);
+ u8 cap_length = *base_address_host_controller; 
+
+ printf("XHCI Capability Register Length %d bytes\n",cap_length);
+ 
+ char* base_address = base_address_host_controller;
+ u16 version = *(base_address+HCIVERSION);
+ printf("XHCI version %x\n",version);
+
+ u32 runtime_offset = *(base_address+RTSOFF);
+ 
+ printf("XHCI Runtime Register offset %d bytes\n",runtime_offset);
+
+ xhci_runtime_registers = base_address+runtime_offset;
+ 
+ printf("XHCI Runtime Register memory %x bytes\n",xhci_runtime_registers);
+
+
+ 
 }
