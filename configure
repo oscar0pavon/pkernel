@@ -1,0 +1,6 @@
+#!/bin/sh
+
+git clone https://github.com/oscar0pavon/pboot
+cd pboot
+make -j4
+

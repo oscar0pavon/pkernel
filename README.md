@@ -8,22 +8,22 @@ pkernel is a kernel for x86_64
 
 I'm working in the USB Host controller for get USB Keyboard
 
-# Booting
-For booting you need the bootloader
-https://github.com/oscar0pavon/pboot  
-pboot need to be in virtual_machine like /disk/EFI/BOOT/BOOTX64.EFI, you can soft link too.  
-Maybe we can include a git module
+# Configure
+
+    ./configure
+
+For using pboot, this is necesary for booting in the virtual machine
 
 # Build
 You only need GCC for building. I included the Flat Assembler in ./bin directory
-```
-make
-```
+
+    make
+
 # Run and test
 You can test with QEMU, there is a script called "start"
-```
-./start
-```
+
+    ./start
+
 You can test in real hardware too. Firt you need to install pboot and pkerel in /boot  
 Or your EFI partition /boot/efi
 
