@@ -2,7 +2,8 @@ CC := cc
 ASSEMBLER := ./tools/fasm
 
 CFLAGS := -ffreestanding -fno-stack-check -fno-stack-protector
-CFLAGS += -fPIC -fshort-wchar -mno-red-zone -maccumulate-outgoing-args
+#CFLAGS += -fno-pic -fno-pie -fshort-wchar
+CFLAGS += -mno-red-zone -maccumulate-outgoing-args
 
 SRCS := $(wildcard *.c)
 OBJS := $(SRCS:c=o)
