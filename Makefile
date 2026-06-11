@@ -21,7 +21,7 @@ all: pkernel
 	@echo "Assembling $@"
 	$(ASSEMBLER) $< $@
 
-drivers.a: ./drivers/drivers.a
+drivers.a:
 	make -C ./drivers
 
 start.o: start.s
