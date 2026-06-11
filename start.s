@@ -14,9 +14,10 @@ binary_interface:
     mov rdx,r8
     mov r10,r9
 
+    mov rsp, kernel_stack_top
+
     call main 
 
-    mov rsp, kernel_stack_top
 
 
 ; if kernel return hang
