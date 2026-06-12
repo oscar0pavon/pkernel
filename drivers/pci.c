@@ -70,6 +70,21 @@ u32 read_pci_data(u8 bus, u8 device, u8 func, u8 pcireg) {
   return ret;
 }
 
+
+void pci_enable_mmio(PciDevice dev) {
+  uint32_t command_reg = 0;
+  
+  // 1. Read the current configuration state of the command register
+  pci_read_32(dev.bus, dev.device_funtion, PCI_REG_COMMAND, &command_reg);
+  
+  // 2. Set the Memory Space and Bus Master bits using a bitwise OR (|)
+  // We use |= so we don't overwrite other firmware-configured bits
+  command_reg |= (PCI_CMD_MEMORY_SPACE | PCI_CMD_BUS_MASTER); 
+  
+  // 3. Write the updated tracking bits back to the hardware
+  pci_write_32(dev.bus, dev.device_funtion, PCI_REG_COMMAND, command_reg);
+}
+
 int print_pci_list(void) {
   u8 bus, device, func;
   u32 data;
@@ -112,14 +127,18 @@ int print_pci_list(void) {
              device_number, pci_bus, device, function, vendor_id, device_id, class);
 
 
-      if(class == PCI_CLASS_SERIAL_BUS && sub_class == PCI_SUBCLASS_USB_CONTROLLER){
+      if(class == PCI_CLASS_SERIAL_BUS 
+          && sub_class == PCI_SUBCLASS_USB_CONTROLLER){
 
         if(prog_if == PCI_INTERFACE_XHCI){
           PciDevice new_pci_device;
           new_pci_device.bus = pci_bus;
           new_pci_device.device_funtion = device_function;
 
-          uint64_t xhci_base = xhci_get_base_address(new_pci_device);
+          pci_enable_mmio(new_pci_device);
+
+          uint64_t xhci_base = xhci_get_base_address2(new_pci_device);
+          printf("--> True xHCI found at Address: 0x%x\n", xhci_base);
         }
 
       }

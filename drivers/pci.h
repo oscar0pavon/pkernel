@@ -23,6 +23,13 @@
 #define PCI_BAR0_OFFSET 0x10
 #define PCI_BAR1_OFFSET 0x14
 
+//MMIO
+#define PCI_REG_COMMAND 0x04
+
+// Bits defined by the official PCI Specification
+#define PCI_CMD_MEMORY_SPACE (1 << 1) // Bit 1: Allows reading/writing to MMIO BARs
+#define PCI_CMD_BUS_MASTER   (1 << 2) // Bit 2: Allows device to perform DMA to RAM
+
 typedef struct PciDevice {
 	u8 bus;
 	u16 device_funtion;

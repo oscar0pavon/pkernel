@@ -22,6 +22,40 @@ void xhci_set_base_address(u64 address){
   base_address_host_controller = (char*)address;
 }
 
+#define PCI_REG_BAR0 0x10
+#define PCI_REG_BAR1 0x14
+
+uint64_t xhci_get_base_address2(PciDevice dev) {
+    uint32_t bar0 = 0;
+    uint32_t bar1 = 0;
+
+    // 1. Read BOTH consecutive registers
+    pci_read_32(dev.bus, dev.device_funtion, PCI_REG_BAR0, &bar0);
+    pci_read_32(dev.bus, dev.device_funtion, PCI_REG_BAR1, &bar1);
+
+    // 2. Clear out the lower 4 status attribute bits from BAR0 
+    // Bit 0 = Memory/IO flag, Bits 1-2 = 64-bit flag
+    uint64_t physical_address = (bar0 & 0xFFFFFFF0);
+
+    // 3. Check if bits 1 and 2 indicate this is a 64-bit address layout
+    // If (bar0 & 0x06) == 0x04, then BAR1 holds the upper 32 bits of the address!
+    if ((bar0 & 0x06) == 0x04) {
+        physical_address |= ((uint64_t)bar1 << 32);
+    }
+
+    // 4. FAIL-SAFE: If the computer firmware truly left it unassigned (0)
+    // We force write our safe bare-metal 32-bit MMIO region.
+    // Real computer chipsets accept this perfectly if Bus Mastering is turned on.
+    if (physical_address == 0) {
+        pci_write_32(dev.bus, dev.device_funtion, PCI_REG_BAR1, 0x00000000);
+        pci_write_32(dev.bus, dev.device_funtion, PCI_REG_BAR0, 0xFE000000);
+        
+        physical_address = 0xFE000000;
+    }
+
+    return physical_address;
+}
+
 
 uint64_t xhci_get_base_address(PciDevice dev){
   

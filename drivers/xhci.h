@@ -15,4 +15,6 @@ void xhci_init();
 
 uint64_t xhci_get_base_address(PciDevice dev);
 
+uint64_t xhci_get_base_address2(PciDevice dev);
+
 #endif
