@@ -7,18 +7,36 @@
 
 #include "xhci.h"
 
+void pci_read_32(u8 bus, u8 device_function, u8 offset, u32* out) {
+    // 1. Properly extract the independent sub-components
+    u8 device   = (device_function >> 3) & 0x1F; // Top 5 bits
+    u8 function = device_function & 0x07;        // Bottom 3 bits
 
-void pci_read_32(u8 bus, u8 device_function, u8 offset, u32* out){
-  u32 address = (PCI_ENABLE_BIT | (bus<<16) | (device_function<<8) | (offset & 0xfc));
-  output(address,PCI_CONFIG_ADDRESS);
-  *out = input(PCI_CONFIG_DATA);
+    // 2. Build the hardware address matching the exact PCI register spec
+    u32 address = PCI_ENABLE_BIT | 
+                  ((u32)bus << 16) | 
+                  ((u32)device << 11) | 
+                  ((u32)function << 8) | 
+                  (offset & 0xFC);
+
+    output(address, PCI_CONFIG_ADDRESS);
+    *out = input(PCI_CONFIG_DATA);
 }
 
-void pci_write_32(u8 bus, u8 device_function, u8 offset, u32 value){
-  u32 address = (PCI_ENABLE_BIT | (bus<<16) | (device_function<<8) | (offset & 0xfc));
-  output(address,PCI_CONFIG_ADDRESS);
-  output(value,PCI_CONFIG_DATA);
+void pci_write_32(u8 bus, u8 device_function, u8 offset, u32 value) {
+    u8 device   = (device_function >> 3) & 0x1F;
+    u8 function = device_function & 0x07;
+
+    u32 address = PCI_ENABLE_BIT | 
+                  ((u32)bus << 16) | 
+                  ((u32)device << 11) | 
+                  ((u32)function << 8) | 
+                  (offset & 0xFC);
+
+    output(address, PCI_CONFIG_ADDRESS);
+    output(value, PCI_CONFIG_DATA);
 }
+
 
 uint16_t read_pci_data16(uint8_t bus, uint8_t slot, uint8_t func, uint8_t offset) {
     uint32_t address;
