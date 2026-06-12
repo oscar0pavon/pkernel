@@ -17,6 +17,16 @@ static char* xhci_runtime_registers;
 #define HCIVERSION 0x02
 #define RTSOFF 0x18
 
+// Allocate a 4KB chunk of raw physical memory aligned to a 64-byte boundary
+// This will hold your primary command tracking loops
+__attribute__((aligned(64))) uint8_t command_ring_buffer[4096];
+
+// Allocate 64-byte aligned tracking structures in your kernel's RAM
+__attribute__((aligned(64))) uint64_t dcbaap[64] = {0};
+__attribute__((aligned(64))) uint32_t command_ring[256 * 4] = {0}; // 256 TRBs (each is 16 bytes/4 dwords)
+__attribute__((aligned(64))) uint32_t event_ring[256 * 4] = {0};
+
+__attribute__((aligned(64))) struct EventRingSegmentEntry erst;
 
 void xhci_set_base_address(u64 address){
   base_address_host_controller = (char*)address;
@@ -123,7 +133,58 @@ void init_xhci_driver(uint64_t xhci_base) {
       __asm__("pause"); 
   }
   printf("xHCI Controller Ready for Setup!\n");
+
+  setup_xhci_hardware(xhci_base, cap_regs, op_regs);
+  
 }
+
+
+void setup_xhci_hardware(uint64_t xhci_base, struct XhciCapabilityRegs* cap_regs, struct XhciOperationalRegs* op_regs) {
+  // 1. Calculate Runtime Registers position
+  struct XhciRuntimeRegs* rt_regs = (struct XhciRuntimeRegs*)(xhci_base + cap_regs->Rtsoff);
+  struct XhciInterrupterRegs* int_0 = &rt_regs->Interrupter[0];
+
+  // 2. Clear the Controller Configuration (Stops all processing)
+  op_regs->Config = 0;
+
+  // 3. Set the DCBAAP address pointer
+  op_regs->Dcbaap = (uint64_t)&dcbaap;
+
+  // 4. Initialize and set the Command Ring Pointer
+  // Bit 0 is the "Cycle State" bit. Set it to 1 to tell xHCI the ring is ready.
+  uint64_t crcr_val = (uint64_t)&command_ring | 1; 
+  op_regs->Crcr = crcr_val;
+
+  // 5. Configure the Event Ring Segment Table (ERST)
+  erst.RingSegmentBaseAddress = (uint64_t)&event_ring;
+  erst.RingSegmentSize = 256; // Matching our allocation size
+  erst.Reserved = 0;
+
+  // 6. Hook ERST into Interrupter 0
+  int_0->Erstsz = 1;               // We are using exactly 1 segment
+  int_0->Erstba = (uint64_t)&erst; // Point to the segment definition block
+  int_0->Erdp = (uint64_t)&event_ring; // Set current read pointer to the start
+
+  // 7. Enable the Interrupter (Disable interrupts if you don't use an IDT yet)
+  // Turning on IMAN bit 1 turns on system assertions, bit 0 clears pending flags
+  int_0->Iman |= (1 << 0) | (1 << 1); 
+
+  // 8. Determine how many hardware slots to turn on
+  uint32_t max_slots = cap_regs->HcsParams1 & 0xFF; 
+  op_regs->Config = max_slots; // Turn on all available device connection tracks
+
+  // 9. START THE CONTROLLER!
+  // Set Bit 0 (Run/Stop) in the USB Command Register to 1
+  op_regs->UsbCmd |= (1 << 0);
+
+  // Wait until the HCHalted bit (Bit 0) in USB Status drops to 0
+  while (op_regs->UsbSts & (1 << 0)) {
+      __asm__("pause");
+  }
+
+  printf("xHCI Controller is fully RUNNING and monitoring USB ports!\n");
+}
+
 
 void xhci_init(){
  printf("Base XHCI address %x\n",base_address_host_controller);
