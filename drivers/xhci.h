@@ -8,9 +8,11 @@
 
 #define MY_USB_ID 0x7a60
 
+#define PCI_INTERFACE_XHCI    0x30 // xHCI Interface code
+
 void xhci_set_base_address(u64 address);
 void xhci_init();
 
-void xhci_get_base_address(PciDevice);
+uint64_t xhci_get_base_address(PciDevice dev);
 
 #endif

@@ -1,6 +1,11 @@
 #include "xhci.h"
 #include "../console.h"
 #include "pci.h"
+#include <stdint.h>
+
+
+#define PCI_BAR0_OFFSET 0x10
+#define PCI_BAR1_OFFSET 0x14
 
 #define U32_MAX 0xFFFFFFFF
 
@@ -18,39 +23,38 @@ void xhci_set_base_address(u64 address){
 }
 
 
-void xhci_get_base_address(PciDevice pci_device){
+uint64_t xhci_get_base_address(PciDevice dev){
 
-      u8 pci_bus = pci_device.bus;
-      u16 device_function = pci_device.device_funtion;
-    
-      u16 device = device_function>>3;
-      u8 function= device_function>>7;
+  uint32_t bar0;
+  uint32_t bar1;
 
-      printf("USB Host controller: %d:%d:%d\n",pci_bus,device,function);
+  // 1. Read BAR0 (Offset 0x10) and BAR1 (Offset 0x14)
+  pci_read_32(dev.bus, dev.device_funtion, PCI_BAR0_OFFSET, &bar0);
+  pci_read_32(dev.bus, dev.device_funtion, PCI_BAR1_OFFSET, &bar1);
 
-      u32 register1 = 0;//command byte
-      pci_read_32(pci_bus,device_function,PCI_REGISTER_1,&register1);
+  // 2. Check if this is actually a Memory-Mapped BAR (Bit 0 must be 0)
+  if (bar0 & 0x1) {
+      printf("Error: xHCI BAR0 is I/O mapped, expected Memory-Mapped.\n");
+      return 0;
+  }
 
+  // 3. Check if it's a 64-bit address (Bits 1 and 2 must equal 2, meaning 0x4)
+  uint64_t xhci_base_mmio = 0;
+  if ((bar0 & 0x6) == 0x4) {
+      // 64-bit address: Combine BAR0 and BAR1, clearing the lower 4 attribute bits
+      xhci_base_mmio = ((uint64_t)(bar1) << 32) | (bar0 & 0xFFFFFFF0);
+  } else {
+      // 32-bit address: Just use BAR0, clearing the lower 4 attribute bits
+      xhci_base_mmio = (bar0 & 0xFFFFFFF0);
+  }
 
-      //disable both I/O and memory decoding
-      u32 commnad_byte = register1 & 0xFC;
-      pci_write_32(pci_bus, device_function, PCI_REGISTER_1, commnad_byte);
+  printf("xHCI Controller found! MMIO Base Address: %x\n", xhci_base_mmio);
 
-      u32 bar0, bar1;
-
-      pci_read_32(pci_bus,device_function,BAR0,&bar0);
-
-      pci_read_32(pci_bus,device_function,BAR1,&bar1);
-      
-      u64 xhci_base = ((bar0 & 0xFFFFFFF0) + (((u64)bar1 & 0xFFFFFFFF) << 32));
-     
-      //restore decoding
-      pci_write_32(pci_bus, device_function, PCI_REGISTER_1, register1);
-
-      uint64_t base_host_controller = xhci_base;
-      printf("Base USB host controller: %x\n",base_host_controller);
-      xhci_set_base_address(base_host_controller);
-      xhci_init();
+  // printf("USB Host controller: %d:%d:%d\n",pci_bus,device,function);
+  //
+  // printf("Base USB host controller: %x\n",base_host_controller);
+  //
+  return xhci_base_mmio;
 }
 
 void xhci_init(){

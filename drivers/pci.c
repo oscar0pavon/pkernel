@@ -8,7 +8,6 @@
 #include "xhci.h"
 
 
-
 void pci_read_32(u8 bus, u8 device_function, u8 offset, u32* out){
   u32 address = (PCI_ENABLE_BIT | (bus<<16) | (device_function<<8) | (offset & 0xfc));
   output(address,PCI_CONFIG_ADDRESS);
@@ -60,34 +59,47 @@ int print_pci_list(void) {
   u8 pci_bus = 0;
   u16 device_function;
   u32 device_number = 0;
+
   for(device_function = 0; device_function < 256; device_function++){
     u32 pci_id;
 
-    //TODO: scan other buses
     pci_read_32(pci_bus,device_function,0,&pci_id);
     if( pci_id == PCI_ERROR )
       continue;
 
     device_number++;
 
-    PciDevice new_pci_device;
-    new_pci_device.bus = pci_bus;
-    new_pci_device.device_funtion = device_function;
     
-    u16 device = device_function>>3;
-    u8 function= device_function>>7;
-    u16 device_id = pci_id>>16;
+
+    // FIXED BIT SHIFTS: Extract proper Device and Function numbers
+    u8 device = (device_function >> 3) & 0x1F;
+    u8 function = device_function & 0x07;
+    u16 device_id = pci_id >> 16;
+    u16 vendor_id = pci_id & 0xFFFF;
+
     printf("Device %d bus %d device %d function %d id: %x\n",\
         device_number,pci_bus,device,function,device_id);
   
-    //get PCI class and sub class
+    // Get PCI class, subclass, and programming interface (ProgIF)
     u32 register2;
+
     pci_read_32(pci_bus,device_function,PCI_REGISTER_2,&register2);
-    u8 class = register2>>24;
-    u8 sub_class = register2>>16;
+
+    u8 class = register2 >> 24;
+    u8 sub_class = (register2 >> 16) & 0xFF;
+    u8 prog_if = (register2 >> 8) & 0xFF; // Tells us if it's UHCI, EHCI, or XHCI
+
+
 
     if(class == PCI_CLASS_SERIAL_BUS && sub_class == PCI_SUBCLASS_USB_CONTROLLER){
-      xhci_get_base_address(new_pci_device);
+
+      if(prog_if == PCI_INTERFACE_XHCI){
+        PciDevice new_pci_device;
+        new_pci_device.bus = pci_bus;
+        new_pci_device.device_funtion = device_function;
+
+        uint64_t xhci_base = xhci_get_base_address(new_pci_device);
+      }
 
 
 
@@ -98,16 +110,21 @@ int print_pci_list(void) {
           device_number,pci_bus,device,function,device_id);
     }
   
-    if(function==0){
-      u32 address;
-      pci_read_32(pci_bus,device_function,PCI_REGISTER_3,&address);//register 3 -> 0xC offset
-      if(address == 0x00800000){//i don't know what is this value
-        device_function +=7;
+    // Offset 0x0C contains Header Type in bits 16-23. 
+    // If we are looking at function 0, check if it's a single-function device.
+    if (function == 0) {
+      u32 register3;
+      pci_read_32(pci_bus, device_function, 0x0C, &register3);
+      u8 header_type = (register3 >> 16) & 0xFF;
+      
+      // If bit 7 (0x80) is NOT set, this device has no functions 1-7. Skip them!
+      if ((header_type & 0x80) == 0) {
+          device_function += 7; // Fast-forward loop straight to next device
       }
+
     }
-
+  
   }
-
 
   return 0;
 }

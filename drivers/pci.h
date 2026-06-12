@@ -20,6 +20,9 @@
 #define BAR0 0x10
 #define BAR1 0x14
 
+#define PCI_BAR0_OFFSET 0x10
+#define PCI_BAR1_OFFSET 0x14
+
 typedef struct PciDevice {
 	u8 bus;
 	u16 device_funtion;
