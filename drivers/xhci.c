@@ -24,9 +24,14 @@ void xhci_set_base_address(u64 address){
 
 
 uint64_t xhci_get_base_address(PciDevice dev){
+  
+  // We clear BAR1 first, then write the target address to BAR0
+  pci_write_32(dev.bus, dev.device_funtion, PCI_BAR0_OFFSET, 0x00000000);
+  pci_write_32(dev.bus, dev.device_funtion, PCI_BAR1_OFFSET, 0xFE000000);
 
-  uint32_t bar0;
-  uint32_t bar1;
+
+  uint32_t bar0 = 0;
+  uint32_t bar1 = 0;
 
   // 1. Read BAR0 (Offset 0x10) and BAR1 (Offset 0x14)
   pci_read_32(dev.bus, dev.device_funtion, PCI_BAR0_OFFSET, &bar0);
@@ -47,6 +52,7 @@ uint64_t xhci_get_base_address(PciDevice dev){
       // 32-bit address: Just use BAR0, clearing the lower 4 attribute bits
       xhci_base_mmio = (bar0 & 0xFFFFFFF0);
   }
+  printf("base test %x\n",0xFE000000);
 
   printf("xHCI Controller found! MMIO Base Address: %x\n", xhci_base_mmio);
 

@@ -75,74 +75,59 @@ int print_pci_list(void) {
   u32 data;
 
   u8 pci_bus = 0;
-  u16 device_function;
   u32 device_number = 0;
 
-  for(device_function = 0; device_function < 256; device_function++){
-    u32 pci_id;
+  u16 device_function;
 
-    pci_read_32(pci_bus,device_function,0,&pci_id);
-    if( pci_id == PCI_ERROR )
-      continue;
-
-    device_number++;
-
-    
-
-    // FIXED BIT SHIFTS: Extract proper Device and Function numbers
-    u8 device = (device_function >> 3) & 0x1F;
-    u8 function = device_function & 0x07;
-    u16 device_id = pci_id >> 16;
-    u16 vendor_id = pci_id & 0xFFFF;
-
-    printf("Device %d bus %d device %d function %d id: %x\n",\
-        device_number,pci_bus,device,function,device_id);
-  
-    // Get PCI class, subclass, and programming interface (ProgIF)
-    u32 register2;
-
-    pci_read_32(pci_bus,device_function,PCI_REGISTER_2,&register2);
-
-    u8 class = register2 >> 24;
-    u8 sub_class = (register2 >> 16) & 0xFF;
-    u8 prog_if = (register2 >> 8) & 0xFF; // Tells us if it's UHCI, EHCI, or XHCI
-
-
-
-    if(class == PCI_CLASS_SERIAL_BUS && sub_class == PCI_SUBCLASS_USB_CONTROLLER){
-
-      if(prog_if == PCI_INTERFACE_XHCI){
-        PciDevice new_pci_device;
-        new_pci_device.bus = pci_bus;
-        new_pci_device.device_funtion = device_function;
-
-        uint64_t xhci_base = xhci_get_base_address(new_pci_device);
-      }
-
-
-
-    }
-
-    if(device_id == MY_USB_ID){
-      printf("USB: bus %d device %d function %d id: %x\n",\
-          device_number,pci_bus,device,function,device_id);
-    }
-  
-    // Offset 0x0C contains Header Type in bits 16-23. 
-    // If we are looking at function 0, check if it's a single-function device.
-    if (function == 0) {
-      u32 register3;
-      pci_read_32(pci_bus, device_function, 0x0C, &register3);
-      u8 header_type = (register3 >> 16) & 0xFF;
+  for (u8 device = 0; device < 32; device++) {
+   
+    for (u8 function = 0; function < 8; function++) { 
       
-      // If bit 7 (0x80) is NOT set, this device has no functions 1-7. Skip them!
-      if ((header_type & 0x80) == 0) {
-          device_function += 7; // Fast-forward loop straight to next device
+      u8 device_function_token = (device << 3) | function;
+
+      u32 pci_id;
+
+      pci_read_32(pci_bus, device_function_token, 0, &pci_id);
+      
+      // If the vendor ID is 0xFFFF or 0x0000, no hardware exists here
+      if (pci_id == 0xFFFFFFFF || pci_id == 0x00000000 || pci_id == PCI_ERROR) {
+          // If function 0 doesn't exist, the whole device doesn't exist. 
+          // We can break the inner loop early to save time!
+          if (function == 0) break; 
+          continue;
+      }
+
+      device_number++;
+
+      u16 device_id = pci_id >> 16;
+      u16 vendor_id = pci_id & 0xFFFF;
+
+      u32 register2;
+      pci_read_32(pci_bus, device_function_token, 0x08, &register2);
+      u8 class = register2 >> 24;
+      u8 sub_class = (register2 >> 16) & 0xFF;
+      u8 prog_if = (register2 >> 8) & 0xFF;
+
+      printf("Found Dev %d: Bus %d, Slot %d, Func %d -> ID %x:%x, Class %x\n", 
+             device_number, pci_bus, device, function, vendor_id, device_id, class);
+
+
+      if(class == PCI_CLASS_SERIAL_BUS && sub_class == PCI_SUBCLASS_USB_CONTROLLER){
+
+        if(prog_if == PCI_INTERFACE_XHCI){
+          PciDevice new_pci_device;
+          new_pci_device.bus = pci_bus;
+          new_pci_device.device_funtion = device_function;
+
+          uint64_t xhci_base = xhci_get_base_address(new_pci_device);
+        }
+
       }
 
     }
-  
+
   }
+
 
   return 0;
 }
