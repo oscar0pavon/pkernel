@@ -139,6 +139,8 @@ int print_pci_list(void) {
 
           uint64_t xhci_base = xhci_get_base_address2(new_pci_device);
           printf("--> True xHCI found at Address: 0x%x\n", xhci_base);
+
+          init_xhci_driver(xhci_base);
         }
 
       }

@@ -97,6 +97,34 @@ uint64_t xhci_get_base_address(PciDevice dev){
   return xhci_base_mmio;
 }
 
+void init_xhci_driver(uint64_t xhci_base) {
+  // Force the pointers to point straight to your physical memory address space
+  struct XhciCapabilityRegs* cap_regs = (struct XhciCapabilityRegs*)xhci_base;
+  
+  // Calculate where the operational registers start using CapLength
+  uint64_t op_base = xhci_base + cap_regs->CapLength;
+  struct XhciOperationalRegs* op_regs = (struct XhciOperationalRegs*)op_base;
+
+  // --- Verification Test Loop ---
+  printf("xHCI Version: %x\n", cap_regs->HciVersion);
+  
+  // Extract maximum number of physical ports supported by this controller
+  uint32_t max_ports = (cap_regs->HcsParams1 >> 24) & 0xFF;
+  printf("Total USB Ports Available: %d\n", max_ports);
+
+  // --- Perform a Hardware Reset to prepare for the keyboard ---
+  // Set Bit 1 (Host Controller Reset) in the USB Command Register
+  op_regs->UsbCmd |= (1 << 1);
+
+  // Wait for the hardware to clear the reset bit automatically
+  printf("Resetting xHCI Controller...\n");
+  while (op_regs->UsbCmd & (1 << 1)) {
+      // In a real system, add a timeout constraint here so it won't hang forever
+      __asm__("pause"); 
+  }
+  printf("xHCI Controller Ready for Setup!\n");
+}
+
 void xhci_init(){
  printf("Base XHCI address %x\n",base_address_host_controller);
  u8 cap_length = *base_address_host_controller; 

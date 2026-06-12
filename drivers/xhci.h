@@ -10,8 +10,38 @@
 
 #define PCI_INTERFACE_XHCI    0x30 // xHCI Interface code
 
+// Host Controller Capability Registers (Read-Only)
+struct XhciCapabilityRegs {
+    uint8_t  CapLength;      // Offset 0x00: Length of this capability structure
+    uint8_t  Reserved;       // Offset 0x01
+    uint16_t HciVersion;     // Offset 0x02: xHCI Interface Version (e.g., 0x0100 or 0x0110)
+    uint32_t HcsParams1;     // Offset 0x04: Structural Parameters 1 (Number of slots/ports)
+    uint32_t HcsParams2;     // Offset 0x08: Structural Parameters 2
+    uint32_t HcsParams3;     // Offset 0x0C: Structural Parameters 3
+    uint32_t HccParams1;     // Offset 0x10: Capability Parameters 1 (Data structures configuration)
+    uint32_t Dboff;          // Offset 0x14: Doorbell Offset
+    uint32_t Rtsoff;          // Offset 0x18: Runtime Registers Offset
+    uint32_t HccParams2;     // Offset 0x1C: Capability Parameters 2
+};
+
+// Host Controller Operational Registers (Read/Write)
+// These control the actual state of the USB system
+struct XhciOperationalRegs {
+    volatile uint32_t UsbCmd;     // Offset 0x00: USB Command Register (Start/Stop/Reset)
+    volatile uint32_t UsbSts;     // Offset 0x04: USB Status Register
+    volatile uint32_t PageSize;   // Offset 0x08: Page Size Register
+    volatile uint32_t Reserved1[2];
+    volatile uint32_t DnCtrl;     // Offset 0x14: Device Notification Control
+    volatile uint64_t Crcr;       // Offset 0x18: Command Ring Control Register (64-bit physical address)
+    volatile uint32_t Reserved2[4];
+    volatile uint64_t Dcbaap;     // Offset 0x30: Device Context Base Address Array Pointer
+    volatile uint32_t Config;     // Offset 0x38: Configure Register (Max Device Slots Enabled)
+};
+
 void xhci_set_base_address(u64 address);
 void xhci_init();
+
+void init_xhci_driver(uint64_t xhci_base);
 
 uint64_t xhci_get_base_address(PciDevice dev);
 
