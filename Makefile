@@ -10,7 +10,8 @@ OBJS := $(SRCS:c=o)
 
 assembly_source := $(wildcard *.s)
 assembly_objects := $(assembly_source:%.s=%.o)
-assembly := $(filter-out start.o, $(assembly_objects))
+#assembly := $(filter-out start.o, $(assembly_objects))
+
 
 all: pkernel
 
@@ -25,13 +26,13 @@ all: pkernel
 drivers.a:
 	make -C ./drivers
 
-start.o: start.s
-	$(ASSEMBLER) start.s start.o
+# start.o: start.s
+# 	$(ASSEMBLER) start.s start.o
 
-pkernel: start.o $(OBJS) $(assembly) drivers.a
+pkernel: $(OBJS) $(assembly_objects) drivers.a
 	@echo "Finish!"
 	@echo "You have pkernel"
-	ld start.o $(OBJS) $(assembly) ./drivers/drivers.a -T binary.ld -o pkernel
+	ld $(OBJS) $(assembly_objects) ./drivers/drivers.a -T binary.ld -o pkernel
 
 install:
 	cp pkernel /root/pboot/virtual_machine/disk/pkernel
