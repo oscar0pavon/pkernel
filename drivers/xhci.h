@@ -36,6 +36,21 @@ struct XhciOperationalRegs {
   volatile uint32_t Reserved2[4];
   volatile uint64_t Dcbaap;     // Offset 0x30: Device Context Base Address Array Pointer
   volatile uint32_t Config;     // Offset 0x38: Configure Register (Max Device Slots Enabled)
+
+  // CRITICAL: Padding up to offset 0x400
+  //  // Config ends at 0x3C. PORTSC starts at 0x400.
+  // (0x400 - 0x3C) = 0x3C4 bytes.
+  // 0x3C4 bytes divided by 4 bytes per DWORD = 241 DWORDs of padding!
+  volatile uint32_t Reserved3[241];
+
+  // Offset 0x400: An array of PORTSC registers (Each port takes 4 dwords / 16
+  // bytes of space) We only need the first dword of each block to check status
+  // flags
+  struct {
+    volatile uint32_t PortSc;
+    volatile uint32_t Reserved[3];
+  } PortRegisterSet[256]; // Maximum potential ports supported by xHCI
+
 };
 
 struct XhciInterrupterRegs {

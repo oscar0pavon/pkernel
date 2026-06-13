@@ -138,6 +138,39 @@ void init_xhci_driver(uint64_t xhci_base) {
   
 }
 
+void scan_xhci_ports(volatile struct XhciCapabilityRegs *cap_regs,
+                     volatile struct XhciOperationalRegs *op_regs) {
+  // Extract the total number of physical ports from structural parameters 1
+  uint32_t max_ports = (cap_regs->HcsParams1 >> 24) & 0xFF;
+  printf("Scanning %d physical ports for connected devices...\n", max_ports);
+
+  for (uint32_t p = 0; p < max_ports; p++) {
+    // Read the raw 32-bit PORTSC register for the current port index
+    uint32_t port_status = op_regs->PortRegisterSet[p].PortSc;
+
+    // Bit 0 == Current Connect Status (CCS)
+    if (port_status & (1 << 0)) {
+      printf("--> Device detected on Port %d! (Raw Status: %x)\n", p + 1,
+             port_status);
+
+      // Extract Port Speed (Bits 10-13) to see if it's USB 1, 2, or 3
+      uint8_t speed = (port_status >> 10) & 0x0F;
+      printf("    Port Speed Identifier: %d\n", speed);
+
+      // Trigger a Port Reset sequence to wake up the keyboard logic hardware
+      // Set Bit 4 (Port Reset) to 1
+      op_regs->PortRegisterSet[p].PortSc |= (1 << 4);
+
+      // Wait for the hardware to clear the Reset bit and set Bit 1 (Connect
+      // Status Change)
+      while (op_regs->PortRegisterSet[p].PortSc & (1 << 4)) {
+        __asm__("pause");
+      }
+      printf("    Port %d Reset complete. Device initialized.\n", p + 1);
+    }
+  }
+}
+
 
 void setup_xhci_hardware(uint64_t xhci_base, 
     volatile struct XhciCapabilityRegs* cap_regs, 
@@ -186,27 +219,7 @@ void setup_xhci_hardware(uint64_t xhci_base,
   }
 
   printf("xHCI Controller is fully RUNNING and monitoring USB ports!\n");
+
+  scan_xhci_ports(cap_regs, op_regs);
 }
 
-
-void xhci_init(){
- printf("Base XHCI address %x\n",base_address_host_controller);
- u8 cap_length = *base_address_host_controller; 
-
- printf("XHCI Capability Register Length %d bytes\n",cap_length);
- 
- char* base_address = base_address_host_controller;
- u16 version = *(base_address+HCIVERSION);
- printf("XHCI version %x\n",version);
-
- u32 runtime_offset = *(base_address+RTSOFF);
- 
- printf("XHCI Runtime Register offset %d bytes\n",runtime_offset);
-
- xhci_runtime_registers = base_address+runtime_offset;
- 
- printf("XHCI Runtime Register memory %x bytes\n",xhci_runtime_registers);
-
-
- 
-}
