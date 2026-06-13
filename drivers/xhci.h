@@ -63,12 +63,19 @@ struct XhciTRB {
 #define TRB_TYPE_ENABLE_SLOT 9
 #define TRB_TYPE_LINK        6
 
+#define TRB_TYPE_COMMAND_COMPLETION_EVENT 32
+
+struct XhciEventTRB {
+    uint64_t CommandTrbPointer; // The physical address of the command TRB we sent
+    uint32_t Status;            // Bits 24-31: Completion Code. Bits 0-23: Parameter/Slot ID
+    uint32_t Control;           // Bits 10-15: TRB Type. Bit 0: Cycle bit
+} __attribute__((packed));
 
 struct XhciInterrupterRegs {
   volatile uint32_t Iman;   // Interrupt Management (Enable/Status)
   volatile uint32_t Imod;   // Interrupt Moderation (Throttling)
-  volatile uint32_t Erstsz; // Event Ring Segment Table Size
-  volatile uint32_t Reserved;
+  volatile uint16_t Erstsz; // Event Ring Segment Table Size
+  volatile uint16_t Reserved;
   volatile uint64_t Erstba; // Event Ring Segment Table Base Address
   volatile uint64_t Erdp;   // Event Ring Dequeue Pointer (Read/Write pointer)
 };

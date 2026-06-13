@@ -1,6 +1,5 @@
 #include "xhci.h"
 #include "../console.h"
-#include "pci.h"
 #include <stdint.h>
 
 
@@ -17,6 +16,11 @@ static char* xhci_runtime_registers;
 uint32_t current_trb_index = 0;
 uint32_t current_cycle_state = 1; // xHCI rings MUST start with Cycle State = 1
 
+// Global tracker to know where we are currently reading inside the event ring
+// array
+uint32_t event_ring_index = 0;
+uint32_t event_ring_cycle = 1; // Expected initial cycle bit written by hardware
+
 #define HCIVERSION 0x02
 #define RTSOFF 0x18
 
@@ -25,87 +29,17 @@ uint32_t current_cycle_state = 1; // xHCI rings MUST start with Cycle State = 1
 __attribute__((aligned(64))) uint8_t command_ring_buffer[4096];
 
 // Allocate 64-byte aligned tracking structures in your kernel's RAM
-__attribute__((aligned(64))) uint64_t dcbaap[64] = {0};
-__attribute__((aligned(64))) uint32_t command_ring[256 * 4] = {0}; // 256 TRBs (each is 16 bytes/4 dwords)
-__attribute__((aligned(64))) uint32_t event_ring[256 * 4] = {0};
+__attribute__((aligned(4096))) volatile uint64_t dcbaap[64] = {0};
+__attribute__((aligned(4096))) volatile uint32_t command_ring[256 * 4] = {
+    0}; // 256 TRBs (each is 16 bytes/4 dwords)
+__attribute__((aligned(4096))) volatile uint32_t event_ring[256 * 4] = {0};
 
-__attribute__((aligned(64))) struct EventRingSegmentEntry erst;
+__attribute__((aligned(4096))) struct EventRingSegmentEntry erst;
 
 
 #define PCI_REG_BAR0 0x10
 #define PCI_REG_BAR1 0x14
 
-uint64_t xhci_get_base_address2(PciDevice dev) {
-    uint32_t bar0 = 0;
-    uint32_t bar1 = 0;
-
-    // 1. Read BOTH consecutive registers
-    pci_read_32(dev.bus, dev.device_funtion, PCI_REG_BAR0, &bar0);
-    pci_read_32(dev.bus, dev.device_funtion, PCI_REG_BAR1, &bar1);
-
-    // 2. Clear out the lower 4 status attribute bits from BAR0 
-    // Bit 0 = Memory/IO flag, Bits 1-2 = 64-bit flag
-    uint64_t physical_address = (bar0 & 0xFFFFFFF0);
-
-    // 3. Check if bits 1 and 2 indicate this is a 64-bit address layout
-    // If (bar0 & 0x06) == 0x04, then BAR1 holds the upper 32 bits of the address!
-    if ((bar0 & 0x06) == 0x04) {
-        physical_address |= ((uint64_t)bar1 << 32);
-    }
-
-    // 4. FAIL-SAFE: If the computer firmware truly left it unassigned (0)
-    // We force write our safe bare-metal 32-bit MMIO region.
-    // Real computer chipsets accept this perfectly if Bus Mastering is turned on.
-    if (physical_address == 0) {
-        pci_write_32(dev.bus, dev.device_funtion, PCI_REG_BAR1, 0x00000000);
-        pci_write_32(dev.bus, dev.device_funtion, PCI_REG_BAR0, 0xFE000000);
-        
-        physical_address = 0xFE000000;
-    }
-
-    return physical_address;
-}
-
-
-uint64_t xhci_get_base_address(PciDevice dev){
-  
-  // We clear BAR1 first, then write the target address to BAR0
-  pci_write_32(dev.bus, dev.device_funtion, PCI_BAR0_OFFSET, 0x00000000);
-  pci_write_32(dev.bus, dev.device_funtion, PCI_BAR1_OFFSET, 0xFE000000);
-
-
-  uint32_t bar0 = 0;
-  uint32_t bar1 = 0;
-
-  // 1. Read BAR0 (Offset 0x10) and BAR1 (Offset 0x14)
-  pci_read_32(dev.bus, dev.device_funtion, PCI_BAR0_OFFSET, &bar0);
-  pci_read_32(dev.bus, dev.device_funtion, PCI_BAR1_OFFSET, &bar1);
-
-  // 2. Check if this is actually a Memory-Mapped BAR (Bit 0 must be 0)
-  if (bar0 & 0x1) {
-      printf("Error: xHCI BAR0 is I/O mapped, expected Memory-Mapped.\n");
-      return 0;
-  }
-
-  // 3. Check if it's a 64-bit address (Bits 1 and 2 must equal 2, meaning 0x4)
-  uint64_t xhci_base_mmio = 0;
-  if ((bar0 & 0x6) == 0x4) {
-      // 64-bit address: Combine BAR0 and BAR1, clearing the lower 4 attribute bits
-      xhci_base_mmio = ((uint64_t)(bar1) << 32) | (bar0 & 0xFFFFFFF0);
-  } else {
-      // 32-bit address: Just use BAR0, clearing the lower 4 attribute bits
-      xhci_base_mmio = (bar0 & 0xFFFFFFF0);
-  }
-  printf("base test %x\n",0xFE000000);
-
-  printf("xHCI Controller found! MMIO Base Address: %x\n", xhci_base_mmio);
-
-  // printf("USB Host controller: %d:%d:%d\n",pci_bus,device,function);
-  //
-  // printf("Base USB host controller: %x\n",base_host_controller);
-  //
-  return xhci_base_mmio;
-}
 
 void init_xhci_driver(uint64_t xhci_base) {
   // Force the pointers to point straight to your physical memory address space
@@ -138,6 +72,88 @@ void init_xhci_driver(uint64_t xhci_base) {
 
   setup_xhci_hardware(xhci_base, cap_regs, op_regs);
   
+}
+
+void poll_xhci_event_ring(uint64_t xhci_base,
+                          volatile struct XhciCapabilityRegs *cap_regs,
+                          volatile struct XhciOperationalRegs* op_regs) {
+  // 1. Locate Interrupter 0 inside the Runtime Registers space
+  uint64_t rt_base = xhci_base + cap_regs->Rtsoff;
+  volatile struct XhciInterrupterRegs *int_0 =
+      (volatile struct XhciInterrupterRegs *)(rt_base + 0x20);
+
+  // Cast our raw event ring buffer array to the structured event layout
+  volatile struct XhciEventTRB *ring =
+      (volatile struct XhciEventTRB *)&event_ring;
+
+  printf("Waiting for xHCI Command Completion Event...\n");
+
+  uint32_t diagnostic_timer = 0;
+
+  // 2. Poll the memory slot until the hardware writes the matching cycle bit
+  while (1) {
+    uint32_t control = ring[event_ring_index].Control;
+    uint32_t hardware_cycle_bit = control & 0x01;
+
+    // If the hardware cycle bit matches our expected cycle state, an event is
+    // ready!
+    if (hardware_cycle_bit == event_ring_cycle) {
+
+      // Extract the TRB Type (Bits 10-15)
+      uint8_t trb_type = (control >> 10) & 0x3F;
+
+      if (trb_type == TRB_TYPE_COMMAND_COMPLETION_EVENT) {
+        // Extract Completion Code (Bits 24-31 of Status). 1 means Success!
+        uint8_t completion_code = (ring[event_ring_index].Status >> 24) & 0xFF;
+
+        // Extract the assigned Slot ID (Bits 24-31 of Control register)
+        uint8_t assigned_slot_id = (control >> 24) & 0xFF;
+
+        printf("--> Event Received!\n");
+        printf("    Completion Code: %d (1 = Success)\n", completion_code);
+        printf("    Assigned Slot ID for Keyboard: %d\n", assigned_slot_id);
+
+        // Keep track of this assigned_slot_id globally so your keyboard driver
+        // can use it later!
+
+        // 3. Update our local index tracker
+        event_ring_index++;
+        if (event_ring_index >=
+            256) { // Matching your event_ring allocation size
+          event_ring_index = 0;
+          event_ring_cycle =
+              !event_ring_cycle; // Invert expected cycle bit on wrap
+        }
+
+        // 4. CRITICAL MANDATORY STEP: Update the ERDP register in the hardware
+        // Calculate the physical memory address of the next processed slot
+        uint64_t next_dequeue_pointer = (uint64_t)&ring[event_ring_index];
+        next_dequeue_pointer &= 0xFFFFFFFFFFFFFFF0ULL;
+
+        // Bit 3 MUST be written as 1 to clear the Event Handler Busy flag (EHB)
+        int_0->Erdp = next_dequeue_pointer | (1 << 3);
+
+        break; // Exit the poll loop successfully
+      }
+    }
+
+    // Diagnostic helper if the loop stays stuck
+    diagnostic_timer++;
+    if (diagnostic_timer > 80000000) {
+      diagnostic_timer = 0;
+      uint32_t status = op_regs->UsbSts;
+      printf("Polling... Live USBSTS Register: 0x%x\n", status);
+
+      // Bit 2 is HSE (Host System Error)
+      if (status& (1 << 12)) {
+        printf("Hardware Halted (HCE). Raw control word at index: 0x%x\n",
+               control);
+      }
+      // Freeze here so you can read the dump
+    }
+
+    __asm__("pause"); // Prevent CPU overheating while waiting
+  }
 }
 
 volatile uint32_t *
@@ -223,6 +239,8 @@ void scan_xhci_ports(volatile struct XhciCapabilityRegs *cap_regs,
 
       // Send an Enable Slot Command to request a Slot ID for the keyboard on Port 5
       xhci_send_command(xhci_base_address, cap_regs, TRB_TYPE_ENABLE_SLOT);
+
+      poll_xhci_event_ring(xhci_base_address, cap_regs, op_regs);
 
     }
   }
