@@ -53,6 +53,17 @@ struct XhciOperationalRegs {
 
 };
 
+struct XhciTRB {
+    uint64_t Parameter; // Usually a physical RAM pointer, or 0 for basic commands
+    uint32_t Status;    // Command modifiers and options (0 for basic commands)
+    uint32_t Control;   // TRB Type, Cycle bit, and other control flags
+} __attribute__((packed));
+
+// The official xHCI Command IDs (TRB Types)
+#define TRB_TYPE_ENABLE_SLOT 9
+#define TRB_TYPE_LINK        6
+
+
 struct XhciInterrupterRegs {
   volatile uint32_t Iman;   // Interrupt Management (Enable/Status)
   volatile uint32_t Imod;   // Interrupt Moderation (Throttling)

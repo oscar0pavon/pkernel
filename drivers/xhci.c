@@ -9,10 +9,13 @@
 
 #define U32_MAX 0xFFFFFFFF
 
-static char* base_address_host_controller;
+static uint64_t xhci_base_address;
 static char* xhci_operational_registers;
 static char* xhci_runtime_registers;
 
+// Track our position inside the circular command ring array
+uint32_t current_trb_index = 0;
+uint32_t current_cycle_state = 1; // xHCI rings MUST start with Cycle State = 1
 
 #define HCIVERSION 0x02
 #define RTSOFF 0x18
@@ -28,9 +31,6 @@ __attribute__((aligned(64))) uint32_t event_ring[256 * 4] = {0};
 
 __attribute__((aligned(64))) struct EventRingSegmentEntry erst;
 
-void xhci_set_base_address(u64 address){
-  base_address_host_controller = (char*)address;
-}
 
 #define PCI_REG_BAR0 0x10
 #define PCI_REG_BAR1 0x14
@@ -134,8 +134,61 @@ void init_xhci_driver(uint64_t xhci_base) {
   }
   printf("xHCI Controller Ready for Setup!\n");
 
+  xhci_base_address = xhci_base;  
+
   setup_xhci_hardware(xhci_base, cap_regs, op_regs);
   
+}
+
+volatile uint32_t *
+get_xhci_doorbell_reg(uint64_t xhci_base,
+                      volatile struct XhciCapabilityRegs *cap_regs,
+                      uint32_t doorbell_index) {
+  // Dboff gives the byte offset from the xHCI base address where the doorbells
+  // start
+  uint64_t doorbell_base = xhci_base + cap_regs->Dboff;
+
+  // Each doorbell register is exactly 4 bytes apart
+  return (volatile uint32_t *)(doorbell_base + (doorbell_index * 4));
+}
+
+void xhci_send_command(uint64_t xhci_base,
+                       volatile struct XhciCapabilityRegs *cap_regs,
+                       uint32_t trb_type) {
+  // Typecast your generic array memory block to our explicit TRB structure
+  // mapping
+  struct XhciTRB *ring = (struct XhciTRB *)&command_ring;
+
+  // 1. Pack the Control bits matching the xHCI specification:
+  // Bits 0: Cycle State (tells hardware this TRB is valid)
+  // Bits 10-15: TRB Type
+  uint32_t control_bits = (trb_type << 10) | current_cycle_state;
+
+  // 2. Write the values directly into our RAM ring slot
+  ring[current_trb_index].Parameter =
+      0; // Enable Slot doesn't need a parameter pointer
+  ring[current_trb_index].Status = 0;
+  ring[current_trb_index].Control = control_bits;
+
+  printf("Posting TRB Type %d to Command Ring index %d...\n", trb_type,
+         current_trb_index);
+
+  // 3. Increment our array tracker for the next command execution
+  current_trb_index++;
+  if (current_trb_index >= 256) { // If we reach the end of your 256-sized array
+    current_trb_index = 0;
+    // In a complex driver, you would write a 'Link TRB' here to loop back the
+    // ring hardware
+  }
+
+  // 4. RING THE DOORBELL!
+  // Doorbell 0 controls the Host Controller Command processor.
+  // Writing 0 to the register maps to "Target 0", meaning "Execute Command
+  // Ring".
+  volatile uint32_t *db_0 = get_xhci_doorbell_reg(xhci_base, cap_regs, 0);
+  *db_0 = 0;
+
+  printf("Doorbell 0 rung successfully!\n");
 }
 
 void scan_xhci_ports(volatile struct XhciCapabilityRegs *cap_regs,
@@ -167,6 +220,10 @@ void scan_xhci_ports(volatile struct XhciCapabilityRegs *cap_regs,
         __asm__("pause");
       }
       printf("    Port %d Reset complete. Device initialized.\n", p + 1);
+
+      // Send an Enable Slot Command to request a Slot ID for the keyboard on Port 5
+      xhci_send_command(xhci_base_address, cap_regs, TRB_TYPE_ENABLE_SLOT);
+
     }
   }
 }
