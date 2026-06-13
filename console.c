@@ -19,6 +19,9 @@ static const uint32_t background_color = 0x282C34;
 static int console_line_buffer_number = 0;
 static int console_line_char_counter = 0;
 
+// Static buffer: 16 hex characters + 1 null terminator
+static char hex_buffer[17];
+
 u32 get_background_color(){
   return background_color;
 }
@@ -39,66 +42,30 @@ void print_in_line_number(uint8_t line_number, char* string){
 }
 
 
-void digit_to_hex(char*buff, uint8_t digit){
 
-    if (digit > 9) {
-
-      if (digit == 10) {
-        buff[0] = 'A';
-      }
-      if (digit == 11) {
-        buff[0] = 'B';
-      }
-      if (digit == 12) {
-        buff[0] = 'C';
-      }
-      if (digit == 13) {
-        buff[0] = 'D';
-      }
-      if (digit == 14) {
-        buff[0] = 'E';
-      }
-      if (digit == 15) {
-        buff[0] = 'F';
-      }
-    } else {
-      buff[0] = digit - '0';
-    }
-}
-
-void print_byte_hex(uint8_t number) {
-  char buff[5];
-  set_memory(buff,0,5);
-
-  buff[0] = '0';
-  buff[1] = 'x';
-  if (number > 16) {
-
-    uint8_t result1 = number / 16;
-    uint8_t result2 = number % 16;
+const char* get_hex_string(uint64_t value) {
+    // Array map for fast indexing
+    const char hex_table[] = "0123456789abcdef";
     
-    if(result1>16){
-      
-      digit_to_hex(&buff[3], result2);
-    }else{
-      digit_to_hex(&buff[2], result1);
+    // Set the null terminator at the very end of the array
+    hex_buffer[16] = '\0';
+    
+    // Loop through all 16 nibbles, writing characters backwards
+    for (int i = 15; i >= 0; i--) {
+        // Extract the lowest 4 bits safely
+        uint8_t nibble = value & 0x0F;
+        
+        // Map the nibble to its text character and store it
+        hex_buffer[i] = hex_table[nibble];
+        
+        // Shift right by 4 bits to prepare the next nibble
+        value >>= 4;
     }
-
-
-
-  } else {
-    buff[2] = '0';
-    digit_to_hex(&buff[3], number);
-  }
-
-  int char_count = string_length(buff);
-  for (int i = 0; i < char_count; i++) {
-    draw_character(buff[i], i * 8, console_current_line * 16, white,
-                   background_color);
-  }
-
-  console_current_line++;
+    
+    // Return the address pointer to the front of the string
+    return hex_buffer;
 }
+
 
 void print_uint(uint32_t number){
 
@@ -147,41 +114,85 @@ void clear_current_line(){
   console_line_char_counter=0;
 }
 
-void printf(const char* format, ...){
+void printf(const char* format, ...) {
+    va_list arguments;
+    va_start(arguments, format);
   
-  va_list arguments;
-  
-  va_start(arguments,format);
-  
-  while(*format){
-    if(*format == '%'){
-      format++;
-      if (*format == 'd') {
-        print_uint(va_arg(arguments, int));
-      } else if (*format == 's') {
-        char *string = va_arg(arguments, char *);
-        printf(string);
-      } else if (*format == 'x') {
-        int number = va_arg(arguments, int);
-        const char *hex = get_hex_string(number);
-        printf("0x%s", hex);
-      }else if (*format == 'b') {
-        //TODO: print binary
-      }
-      format++;
-    } else if (*format == '\n') {
-      format++;
-      console_current_line++;
-      console_line_char_counter=0;
+    while (*format) {
+        if (*format == '%') {
+            format++; // Move past '%'
+            
+            // Check for 64-bit Long modifier (e.g., %lx or %llx)
+            int is_long = 0;
+            if (*format == 'l') {
+                is_long = 1;
+                format++;
+                if (*format == 'l') {
+                    format++; // Consume second 'l' if using %llx
+                }
+            }
 
-    } else {
-      draw_character(*format, console_line_char_counter * 8,
-                     console_current_line * 16, white, background_color);
-      console_line_char_counter++;
-      format++;
+            if (*format == 'd') {
+                if (is_long) {
+                    // Handle printing 64-bit signed/unsigned longs if you have a helper
+                    print_uint(va_arg(arguments, uint64_t)); 
+                } else {
+                    print_uint(va_arg(arguments, int));
+                }
+            } 
+            else if (*format == 's') {
+                char *string = va_arg(arguments, char *);
+                // FIX RECURSION BUG: Print characters directly instead of calling printf() recursively!
+                while (*string) {
+                    if (*string == '\n') {
+                        console_current_line++;
+                        console_line_char_counter = 0;
+                    } else {
+                        draw_character(*string, console_line_char_counter * 8,
+                                       console_current_line * 16, white, background_color);
+                        console_line_char_counter++;
+                    }
+                    string++;
+                }
+            } 
+            else if (*format == 'x') {
+                uint64_t number;
+                if (is_long) {
+                    // CRITICAL FIX: Extract full 64-bit word from the variadic stack arguments
+                    number = va_arg(arguments, uint64_t); 
+                } else {
+                    // Standard 32-bit hex, explicitly cast to unsigned to stop sign-extension
+                    number = va_arg(arguments, uint32_t); 
+                }
+                
+                const char *hex = get_hex_string(number);
+                
+                // Print the hex string directly to the screen characters array
+                while (*hex) {
+                    draw_character(*hex, console_line_char_counter * 8,
+                                   console_current_line * 16, white, background_color);
+                    console_line_char_counter++;
+                    hex++;
+                }
+            } 
+            else if (*format == 'b') {
+                // TODO: print binary
+            }
+            format++;
+        } 
+        else if (*format == '\n') {
+            format++;
+            console_current_line++;
+            console_line_char_counter = 0;
+        } 
+        else {
+            draw_character(*format, console_line_char_counter * 8,
+                           console_current_line * 16, white, background_color);
+            console_line_char_counter++;
+            format++;
+        }
     }
-  }
   
-  va_end(arguments);
-
+    va_end(arguments);
 }
+
