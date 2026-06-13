@@ -63,8 +63,8 @@ struct EventRingSegmentEntry {
 
 
 void setup_xhci_hardware(uint64_t xhci_base, 
-    struct XhciCapabilityRegs* cap_regs, 
-    struct XhciOperationalRegs* op_regs);
+    volatile struct XhciCapabilityRegs* cap_regs, 
+    volatile struct XhciOperationalRegs* op_regs);
 
 void xhci_set_base_address(u64 address);
 void xhci_init();

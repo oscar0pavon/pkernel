@@ -139,10 +139,13 @@ void init_xhci_driver(uint64_t xhci_base) {
 }
 
 
-void setup_xhci_hardware(uint64_t xhci_base, struct XhciCapabilityRegs* cap_regs, struct XhciOperationalRegs* op_regs) {
+void setup_xhci_hardware(uint64_t xhci_base, 
+    volatile struct XhciCapabilityRegs* cap_regs, 
+    volatile struct XhciOperationalRegs* op_regs) {
+
   // 1. Calculate Runtime Registers position
-  struct XhciRuntimeRegs* rt_regs = (struct XhciRuntimeRegs*)(xhci_base + cap_regs->Rtsoff);
-  struct XhciInterrupterRegs* int_0 = &rt_regs->Interrupter[0];
+  volatile struct XhciRuntimeRegs* rt_regs = (struct XhciRuntimeRegs*)(xhci_base + cap_regs->Rtsoff);
+  volatile struct XhciInterrupterRegs* int_0 = &rt_regs->Interrupter[0];
 
   // 2. Clear the Controller Configuration (Stops all processing)
   op_regs->Config = 0;

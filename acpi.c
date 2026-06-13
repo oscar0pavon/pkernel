@@ -1,6 +1,7 @@
 #include "acpi.h"
 #include <stdint.h>
 #include "console.h"
+#include "drivers/xhci.h"
 
 struct FADT_t* FADT = NULL;
 struct XSDP_t* XSDP = NULL;
@@ -95,6 +96,9 @@ void find_xhci_via_mcfg() {
 
         printf("xHCI Controller Internal Registers live at: %lx\n",
                xhci_base_mmio);
+
+        init_xhci_driver(xhci_base_mmio);
+
         return;
       }
     }
