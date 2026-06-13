@@ -49,6 +49,25 @@ struct __attribute__((packed, aligned(4))) DSDT_t {
   uint64_t entries[];
 };
 
+// Structure for an individual PCIe allocation configuration entry
+struct MCFGStructureEntry {
+    uint64_t BaseAddress;        // The physical MMIO base address for this segment!
+    uint16_t PciSegmentGroup;     // PCI Segment group number
+    uint8_t  StartBusNumber;      // First PCI bus number managed by this entry
+    uint8_t  EndBusNumber;        // Last PCI bus number managed by this entry
+    uint32_t Reserved;
+} __attribute__((packed));
+
+// The core MCFG Table Header
+struct MCFG_t {
+    struct ACPISystemDescriptorTableHeader Header; // Standard 36-byte ACPI header
+    uint64_t Reserved;
+    struct MCFGStructureEntry Entries[];           // Flexible array tracking entries
+};
+
+// Global pointer to track the discovered MMIO base address
+extern uint64_t pcie_mmio_base_address;
+
 typedef struct {
 	uint8_t address_space;
 	uint8_t bit_width;
@@ -177,6 +196,6 @@ extern struct XSDT_t* XSDT;
 
 bool acpi_compare_signature(char* signature1, char* signature2);
 
-void parse_XDST();
+void parse_XSDT();
 
 #endif

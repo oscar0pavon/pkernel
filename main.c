@@ -32,9 +32,9 @@ void main(void* in_frame_buffer,uint64_t xsdt_address){
   printf("XSDT address: %x\n",xsdt_address);
 
 	XSDT = (struct XSDT_t*)xsdt_address;
-	parse_XDST();
+	parse_XSDT();
 
-	print("parsed acpi");
+	printf("parsed acpi\n");
 	// printf("PCI List\n");
 	// print_pci_list();
 	//create_base_address();
