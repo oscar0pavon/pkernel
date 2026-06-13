@@ -24,18 +24,19 @@ byte read_pit_count(void){
 	return count;
 }
 
-void main(void* in_frame_buffer,uint64_t acpi_table){
+void main(void* in_frame_buffer,uint64_t xsdt_address){
 	init_frambuffer(in_frame_buffer);	
 
 	printf("pkernel\n");
 
+  printf("XSDT address: %x\n",xsdt_address);
 
-	XSDT = (struct XSDT_t*)acpi_table;
-	//parse_XDST();
+	XSDT = (struct XSDT_t*)xsdt_address;
+	parse_XDST();
 
-	//print("parsed acpi");
-	printf("PCI List\n");
-	print_pci_list();
+	print("parsed acpi");
+	// printf("PCI List\n");
+	// print_pci_list();
 	//create_base_address();
 
 

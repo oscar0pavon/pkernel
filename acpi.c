@@ -22,23 +22,24 @@ bool acpi_compare_signature(char* signature1, char* signature2){
 void parse_FADT(){
 
 	if(acpi_compare_signature(FADT->header.signature, "FACP")){
-			uint32_t fadt_size = FADT->header.length;
-			if(fadt_size != sizeof(struct FADT_t)){
-				print("FADT size not equal");
-				print_uint(FADT->header.length);
-				print_uint(sizeof(struct FADT_t));
-			}
+    uint32_t fadt_size = FADT->header.length;
+    if(fadt_size != sizeof(struct FADT_t)){
+      printf("FADT size not equal %d %d\n", 
+          FADT->header.length, sizeof(struct FADT_t));
+    }
 
-			ACPISystemDescriptorTableHeader* header = (ACPISystemDescriptorTableHeader*)(FADT->X_Dsdt);
-	
-			header = (ACPISystemDescriptorTableHeader*)&FADT->X_Dsdt;
+    ACPISystemDescriptorTableHeader* header = 
+      (ACPISystemDescriptorTableHeader*)(FADT->X_Dsdt);
+
+    header = (ACPISystemDescriptorTableHeader*)&FADT->X_Dsdt;
+
 		if(acpi_compare_signature(header->signature, "DSDT")){
-			print("Work DSDT");
+			printf("Work DSDT\n");
 		}else{
-			print("DSDT not work");
+			printf("DSDT not work\n");
 		}
 		if(FADT->X_Dsdt == 0){
-			print("DSDT memory zero");
+			printf("DSDT memory zero\n");
 		}
 		DSDT = (struct DSDT_t*)FADT->X_Dsdt;
 		//print(DSDT->header.signature);
@@ -49,7 +50,7 @@ void parse_FADT(){
 void parse_XDST() {
 
   if (acpi_compare_signature(XSDT->header.signature, "XSDT")) {
-    print("is XSDT table");
+    printf("is XSDT table\n");
   }
 
   uint32_t number_of_entries_XSDT =
@@ -61,15 +62,13 @@ void parse_XDST() {
 
     // print(myheader->signature);
     if (acpi_compare_signature(myheader->signature, "FACP")) {
-      print("Found FADT with size");
-      print_uint(myheader->length);
+      printf("Found FADT with size %d\n",myheader->length);
       FADT = (struct FADT_t *)myheader;
       parse_FADT();
       continue;
     }
     if (acpi_compare_signature(myheader->signature, "APIC")) {
-      print("Fount MADT with size");
-      print_uint(myheader->length);
+      printf("Fount MADT with size %d\n", myheader->length);
     }
   }
 }
