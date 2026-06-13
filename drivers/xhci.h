@@ -51,7 +51,7 @@ struct XhciOperationalRegs {
     volatile uint32_t Reserved[3];
   } PortRegisterSet[256]; // Maximum potential ports supported by xHCI
 
-};
+}__attribute__((packed));
 
 struct XhciTRB {
     uint64_t Parameter; // Usually a physical RAM pointer, or 0 for basic commands

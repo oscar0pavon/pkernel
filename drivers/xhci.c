@@ -40,21 +40,23 @@ __attribute__((aligned(4096))) struct EventRingSegmentEntry erst;
 #define PCI_REG_BAR0 0x10
 #define PCI_REG_BAR1 0x14
 
+static uint32_t xhci_max_ports = 0;
 
 void init_xhci_driver(uint64_t xhci_base) {
   // Force the pointers to point straight to your physical memory address space
-  struct XhciCapabilityRegs* cap_regs = (struct XhciCapabilityRegs*)xhci_base;
+  volatile struct XhciCapabilityRegs* cap_regs = (struct XhciCapabilityRegs*)xhci_base;
   
   // Calculate where the operational registers start using CapLength
   uint64_t op_base = xhci_base + cap_regs->CapLength;
-  struct XhciOperationalRegs* op_regs = (struct XhciOperationalRegs*)op_base;
+  volatile struct XhciOperationalRegs* op_regs = (struct XhciOperationalRegs*)op_base;
 
   // --- Verification Test Loop ---
   printf("xHCI Version: %x\n", cap_regs->HciVersion);
   
   // Extract maximum number of physical ports supported by this controller
-  uint32_t max_ports = (cap_regs->HcsParams1 >> 24) & 0xFF;
-  printf("Total USB Ports Available: %d\n", max_ports);
+  xhci_max_ports = (cap_regs->HcsParams1 >> 24) & 0xFF;
+
+  printf("Total USB Ports Available: %d\n", xhci_max_ports);
 
   // --- Perform a Hardware Reset to prepare for the keyboard ---
   // Set Bit 1 (Host Controller Reset) in the USB Command Register
@@ -63,10 +65,28 @@ void init_xhci_driver(uint64_t xhci_base) {
   // Wait for the hardware to clear the reset bit automatically
   printf("Resetting xHCI Controller...\n");
   while (op_regs->UsbCmd & (1 << 1)) {
-      // In a real system, add a timeout constraint here so it won't hang forever
-      __asm__("pause"); 
+    // In a real system, add a timeout constraint here so it won't hang forever
+    __asm__("pause"); 
   }
-  printf("xHCI Controller Ready for Setup!\n");
+
+  printf("xHCI Reset Bit Cleared.\n");
+
+  printf("Waiting for Controller to become Ready (CNR)...\n");
+
+  while (op_regs->UsbSts & (1 << 11)) {
+    __asm__("pause");
+  }
+
+  printf("xHCI Controller Ready for Configuration!\n");
+
+  op_regs->UsbSts = 0xFFFFFFFF;
+
+  // 4. Give the physical clock lines a brief moment to settle down completely
+  for (volatile int delay = 0; delay < 10000000; delay++) {
+    __asm__("pause");
+  }
+
+  printf("Running setup hardware\n");
 
   xhci_base_address = xhci_base;  
 
@@ -228,7 +248,9 @@ void scan_xhci_ports(volatile struct XhciCapabilityRegs *cap_regs,
 
       // Trigger a Port Reset sequence to wake up the keyboard logic hardware
       // Set Bit 4 (Port Reset) to 1
-      op_regs->PortRegisterSet[p].PortSc |= (1 << 4);
+      uint32_t reset_command = port_status & ~0x007E0000;
+      reset_command |= (1 << 4);
+      op_regs->PortRegisterSet[p].PortSc = reset_command;
 
       // Wait for the hardware to clear the Reset bit and set Bit 1 (Connect
       // Status Change)
@@ -252,11 +274,15 @@ void setup_xhci_hardware(uint64_t xhci_base,
     volatile struct XhciOperationalRegs* op_regs) {
 
   // 1. Calculate Runtime Registers position
-  volatile struct XhciRuntimeRegs* rt_regs = (struct XhciRuntimeRegs*)(xhci_base + cap_regs->Rtsoff);
+  volatile struct XhciRuntimeRegs *rt_regs =
+      (struct XhciRuntimeRegs *)(xhci_base + cap_regs->Rtsoff);
+
   volatile struct XhciInterrupterRegs* int_0 = &rt_regs->Interrupter[0];
 
   // 2. Clear the Controller Configuration (Stops all processing)
   op_regs->Config = 0;
+
+  op_regs->UsbSts = 0xFFFFFFFF;
 
   // 3. Set the DCBAAP address pointer
   op_regs->Dcbaap = (uint64_t)&dcbaap;
@@ -274,11 +300,11 @@ void setup_xhci_hardware(uint64_t xhci_base,
   // 6. Hook ERST into Interrupter 0
   int_0->Erstsz = 1;               // We are using exactly 1 segment
   int_0->Erstba = (uint64_t)&erst; // Point to the segment definition block
-  int_0->Erdp = (uint64_t)&event_ring; // Set current read pointer to the start
+  int_0->Erdp = (uint64_t)&event_ring | ( 1 << 3); // Set current read pointer to the start
 
   // 7. Enable the Interrupter (Disable interrupts if you don't use an IDT yet)
   // Turning on IMAN bit 1 turns on system assertions, bit 0 clears pending flags
-  int_0->Iman |= (1 << 0) | (1 << 1); 
+  int_0->Iman |= (1 << 0); 
 
   // 8. Determine how many hardware slots to turn on
   uint32_t max_slots = cap_regs->HcsParams1 & 0xFF; 
