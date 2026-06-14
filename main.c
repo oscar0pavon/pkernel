@@ -11,7 +11,7 @@
 #include "memory.h"
 
 #include "gdt.h"
-
+#include "paging.h"
 
 void hang(){
 	while(1){};
@@ -37,6 +37,9 @@ void main(BootInfo* boot_info){
   init_gdt();
 
   setup_memory(boot_info);
+
+  init_kernel_paging();
+
 
 
   printf("XSDT address: %x\n",xsdt_address);
