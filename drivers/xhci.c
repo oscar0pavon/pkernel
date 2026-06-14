@@ -3,11 +3,6 @@
 #include <stdint.h>
 
 
-#define PCI_BAR0_OFFSET 0x10
-#define PCI_BAR1_OFFSET 0x14
-
-#define U32_MAX 0xFFFFFFFF
-
 uint64_t xhci_base_mmio = 0;
 
 static uint64_t xhci_base_address;
@@ -287,30 +282,35 @@ void setup_xhci_hardware(uint64_t xhci_base,
   op_regs->UsbSts = 0xFFFFFFFF;
 
   // 3. Set the DCBAAP address pointer
-  op_regs->Dcbaap = (uint64_t)&dcbaap;
+  op_regs->Dcbaap = (uint64_t)(uintptr_t)&dcbaap;
 
   // 4. Initialize and set the Command Ring Pointer
   // Bit 0 is the "Cycle State" bit. Set it to 1 to tell xHCI the ring is ready.
-  uint64_t crcr_val = (uint64_t)&command_ring | 1; 
+  uint64_t crcr_val = (uint64_t)(uintptr_t)&command_ring | 1; 
   op_regs->Crcr = crcr_val;
 
   // 5. Configure the Event Ring Segment Table (ERST)
-  erst.RingSegmentBaseAddress = (uint64_t)&event_ring;
+  erst.RingSegmentBaseAddress = (uint64_t)(uintptr_t)&event_ring;
   erst.RingSegmentSize = 256; // Matching our allocation size
   erst.Reserved = 0;
 
   // 6. Hook ERST into Interrupter 0
   int_0->Erstsz = 1;               // We are using exactly 1 segment
-  int_0->Erstba = (uint64_t)&erst; // Point to the segment definition block
-  int_0->Erdp = (uint64_t)&event_ring | ( 1 << 3); // Set current read pointer to the start
+  int_0->Erstba = (uint64_t)(uintptr_t)&erst; // Point to the segment definition block
+
+
+  uint64_t erdp_val = (uint64_t)(uintptr_t)&event_ring;
+  erdp_val &= 0xFFFFFFFFFFFFFFF0ULL;
+  int_0->Erdp = erdp_val | (1 << 3);
 
   // 7. Enable the Interrupter (Disable interrupts if you don't use an IDT yet)
   // Turning on IMAN bit 1 turns on system assertions, bit 0 clears pending flags
-  int_0->Iman |= (1 << 0); 
+  
+  int_0->Iman = (1 << 0); 
 
   // 8. Determine how many hardware slots to turn on
   uint32_t max_slots = cap_regs->HcsParams1 & 0xFF; 
-  op_regs->Config = max_slots; // Turn on all available device connection tracks
+  op_regs->Config = 1; // Turn on all available device connection tracks
 
   // 9. START THE CONTROLLER!
   // Set Bit 0 (Run/Stop) in the USB Command Register to 1
