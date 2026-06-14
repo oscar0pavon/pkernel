@@ -87,13 +87,14 @@ void parse_XSDT() {
       // Read properties from the first entry directly
       uint64_t* mmio = get_pcie_mmio_address();
       *mmio = first_entry->BaseAddress;
+      //pcie_mmio_base_address = first_entry->BaseAddress;
 
       printf("--> SUCCESS! MCFG Entry 0 Base Address: %x\n",
              *mmio);
       printf("--> Bus Range: %d to %d\n", first_entry->StartBusNumber,
              first_entry->EndBusNumber);
 
-      //setup_pci();
+      setup_pci();
     }
   }
 }

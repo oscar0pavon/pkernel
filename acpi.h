@@ -65,8 +65,6 @@ struct MCFG_t {
     struct MCFGStructureEntry Entries[];           // Flexible array tracking entries
 };
 
-// Global pointer to track the discovered MMIO base address
-extern uint64_t pcie_mmio_base_address;
 
 typedef struct {
 	uint8_t address_space;
