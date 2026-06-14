@@ -27,8 +27,11 @@
 #define PCI_REG_COMMAND 0x04
 
 // Bits defined by the official PCI Specification
-#define PCI_CMD_MEMORY_SPACE (1 << 1) // Bit 1: Allows reading/writing to MMIO BARs
-#define PCI_CMD_BUS_MASTER   (1 << 2) // Bit 2: Allows device to perform DMA to RAM
+
+// Bit 1: Allows reading/writing to MMIO BARs
+#define PCI_CMD_MEMORY_SPACE (1 << 1) 
+// Bit 2: Allows device to perform DMA to RAM
+#define PCI_CMD_BUS_MASTER   (1 << 2) 
 
 typedef struct PciDevice {
 	u8 bus;
