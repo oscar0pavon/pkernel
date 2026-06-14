@@ -1,8 +1,4 @@
-CC := cc
-ASSEMBLER := ./bin/fasm
-
-CFLAGS := -ffreestanding -fno-stack-check -fno-stack-protector
-CFLAGS += -fPIC -fshort-wchar -mno-red-zone -maccumulate-outgoing-args
+include ../include.Makefile
 
 source := $(wildcard *.c)
 objets := $(source:c=o)
