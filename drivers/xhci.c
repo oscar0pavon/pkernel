@@ -8,6 +8,8 @@
 
 #define U32_MAX 0xFFFFFFFF
 
+uint64_t xhci_base_mmio = 0;
+
 static uint64_t xhci_base_address;
 static char* xhci_operational_registers;
 static char* xhci_runtime_registers;

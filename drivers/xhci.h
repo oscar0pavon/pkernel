@@ -10,6 +10,8 @@
 
 #define PCI_INTERFACE_XHCI    0x30 // xHCI Interface code
 
+extern uint64_t xhci_base_mmio;
+
 // Host Controller Capability Registers (Read-Only)
 struct XhciCapabilityRegs {
   uint8_t  CapLength;      // Offset 0x00: Length of this capability structure

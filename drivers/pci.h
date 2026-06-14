@@ -35,11 +35,9 @@ typedef struct PciDevice {
 	u16 device_funtion;
 } PciDevice;
 
-extern byte create_base_address(void);
 
-int print_pci_list(void);
+uint64_t* get_pcie_mmio_address();
 
-void pci_read_32(u8 bus, u8 device_function, u8 offset, u32* out);
-void pci_write_32(u8 bus, u8 device_function, u8 offset, u32 value);
+void setup_pci();
 
 #endif
