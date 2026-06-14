@@ -9,6 +9,19 @@
 
 #include "input_output.h"
 
+
+typedef struct MemoryMapInfo{
+  uint64_t buffer_address; // Absolute physical memory address of the mmap data (0x5000000)
+  uint64_t total_size;     // Total bytes populated in the buffer
+  uint64_t descriptor_size;// Unique hardware stepping size (usually 40 or 48 bytes)
+}MemoryMapInfo;
+
+typedef struct BootInfo{
+  FrameBuffer frame_buffer;
+  MemoryMapInfo memory_info;
+  uint64_t xsdt_address;
+}BootInfo;
+
 void hang(){
 	while(1){};
 }
@@ -24,10 +37,12 @@ byte read_pit_count(void){
 	return count;
 }
 
-void main(void* in_frame_buffer,uint64_t xsdt_address){
-	init_frambuffer(in_frame_buffer);	
+void main(BootInfo* boot_info){
+	init_frambuffer(&boot_info->frame_buffer);	
+  uint64_t xsdt_address = boot_info->xsdt_address;
 
 	printf("pkernel\n");
+
 
   printf("XSDT address: %x\n",xsdt_address);
 
