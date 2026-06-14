@@ -11,6 +11,7 @@
 #include "memory.h"
 
 #include "gdt.h"
+#include "idt.h"
 #include "paging.h"
 
 void hang(){
@@ -35,6 +36,7 @@ void main(BootInfo* boot_info){
 	printf("pkernel\n");
 
   init_gdt();
+  init_idt();
 
   setup_memory(boot_info);
 

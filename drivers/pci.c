@@ -59,7 +59,7 @@ void setup_pci() {
           printf("xHCI Controller Internal Registers live at: %lx\n",
                  xhci_base_mmio);
 
-          //init_xhci_driver(xhci_base_mmio);
+          init_xhci_driver(xhci_base_mmio);
         }
       }
     }

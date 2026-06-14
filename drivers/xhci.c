@@ -87,7 +87,7 @@ void init_xhci_driver(uint64_t xhci_base) {
 
   xhci_base_address = xhci_base;  
 
-  setup_xhci_hardware(xhci_base, cap_regs, op_regs);
+  //setup_xhci_hardware(xhci_base, cap_regs, op_regs);
   
 }
 
