@@ -25,6 +25,10 @@ void init_kernel_paging(void) {
   for (int i = 0; i < 512; i++) {
     kernel_pml4[i] = 0;
     kernel_pdpt[i] = 0;
+    kernel_pd0[i] = 0;
+    kernel_pd1[i] = 0;
+    kernel_pd2[i] = 0;
+    kernel_pd3[i] = 0;
   }
 
   // 2. Link PML4 Entry 0 to our Page Descriptor Pointer Table (PDPT)
