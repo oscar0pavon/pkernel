@@ -20,6 +20,8 @@ __attribute__((aligned(
     4096))) static uint64_t kernel_pd3[512]; // Maps 3GB - 4GB (Includes your
                                              // high xHCI MMIO / ACPI zones)
 
+__attribute__((aligned(4096))) static uint64_t kernel_pd_xhci[512];
+
 void init_kernel_paging(void) {
   // 1. Zero out the tables completely to wipe any random RAM junk bytes
   for (int i = 0; i < 512; i++) {
@@ -29,6 +31,7 @@ void init_kernel_paging(void) {
     kernel_pd1[i] = 0;
     kernel_pd2[i] = 0;
     kernel_pd3[i] = 0;
+    kernel_pd_xhci[i] = 0;
   }
 
   // 2. Link PML4 Entry 0 to our Page Descriptor Pointer Table (PDPT)
@@ -40,6 +43,8 @@ void init_kernel_paging(void) {
   kernel_pdpt[1] = (uint64_t)kernel_pd1 | PAGE_PRESENT | PAGE_READWRITE;
   kernel_pdpt[2] = (uint64_t)kernel_pd2 | PAGE_PRESENT | PAGE_READWRITE;
   kernel_pdpt[3] = (uint64_t)kernel_pd3 | PAGE_PRESENT | PAGE_READWRITE;
+
+  kernel_pdpt[32] = (uint64_t)&kernel_pd_xhci | PAGE_PRESENT | PAGE_READWRITE;
 
   // 4. Fill the directories to identity-map the lower 4GB using fast 2MB huge
   // pages
@@ -63,6 +68,9 @@ void init_kernel_paging(void) {
     // bars!)
     kernel_pd3[i] =
         (0xC0000000ULL + chunk_2mb) | PAGE_PRESENT | PAGE_READWRITE | PAGE_HUGE;
+
+    kernel_pd_xhci[i] = (0x800000000ULL + chunk_2mb) 
+      | PAGE_PRESENT | PAGE_READWRITE | PAGE_HUGE;
   }
 
   // 5. Load your new unrestricted page tables directly into the CPU!
