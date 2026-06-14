@@ -10,7 +10,6 @@ OBJS := $(SRCS:c=o)
 
 assembly_source := $(wildcard *.s)
 assembly_objects := $(assembly_source:%.s=%.o)
-#assembly := $(filter-out start.o, $(assembly_objects))
 
 
 all: pkernel
@@ -26,8 +25,6 @@ all: pkernel
 drivers.a:
 	make -C ./drivers
 
-# start.o: start.s
-# 	$(ASSEMBLER) start.s start.o
 
 pkernel: $(OBJS) $(assembly_objects) drivers.a
 	@echo "Finish!"

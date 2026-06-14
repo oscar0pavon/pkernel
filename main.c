@@ -5,22 +5,13 @@
 #include "acpi.h"
 
 #include "input.h"
-#include "drivers/pci.h"
 
 #include "input_output.h"
+#include "pkernel.h"
+#include "memory.h"
 
+#include "gdt.h"
 
-typedef struct MemoryMapInfo{
-  uint64_t buffer_address; // Absolute physical memory address of the mmap data (0x5000000)
-  uint64_t total_size;     // Total bytes populated in the buffer
-  uint64_t descriptor_size;// Unique hardware stepping size (usually 40 or 48 bytes)
-}MemoryMapInfo;
-
-typedef struct BootInfo{
-  FrameBuffer frame_buffer;
-  MemoryMapInfo memory_info;
-  uint64_t xsdt_address;
-}BootInfo;
 
 void hang(){
 	while(1){};
@@ -42,6 +33,10 @@ void main(BootInfo* boot_info){
   uint64_t xsdt_address = boot_info->xsdt_address;
 
 	printf("pkernel\n");
+
+  init_gdt();
+
+  setup_memory(boot_info);
 
 
   printf("XSDT address: %x\n",xsdt_address);

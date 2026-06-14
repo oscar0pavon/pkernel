@@ -14,7 +14,9 @@ binary_interface:
     mov rdx,r8
     mov r10,r9
 
+
     mov rsp, kernel_stack_top
+    and rsp, -16
 
     call main 
 
