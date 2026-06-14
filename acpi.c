@@ -93,7 +93,7 @@ void parse_XSDT() {
       printf("--> Bus Range: %d to %d\n", first_entry->StartBusNumber,
              first_entry->EndBusNumber);
 
-      setup_pci();
+      //setup_pci();
     }
   }
 }

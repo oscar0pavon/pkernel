@@ -166,6 +166,9 @@ void poll_xhci_event_ring(uint64_t xhci_base,
         printf("Hardware Halted (HCE). Raw control word at index: 0x%x\n",
                control);
       }
+      if (status & (1 << 2))  printf("Host System Error (HSE)!\n");
+      if (status & (1 << 12)) printf("Host Controller Error (HCE)!\n");
+      if (status & (1 << 0))  printf("Controller Halted!\n");
       // Freeze here so you can read the dump
     }
 
@@ -188,36 +191,33 @@ get_xhci_doorbell_reg(uint64_t xhci_base,
 void xhci_send_command(uint64_t xhci_base,
                        volatile struct XhciCapabilityRegs *cap_regs,
                        uint32_t trb_type) {
-  // Typecast your generic array memory block to our explicit TRB structure
-  // mapping
-  struct XhciTRB *ring = (struct XhciTRB *)&command_ring;
+  // CRITICAL FIX: Clean the command ring variable address to a physical
+  // coordinate
+  uint64_t cmd_ring_phys = ((uint64_t)(uintptr_t)&command_ring) & 0xFFFFFFFFULL;
 
-  // 1. Pack the Control bits matching the xHCI specification:
-  // Bits 0: Cycle State (tells hardware this TRB is valid)
-  // Bits 10-15: TRB Type
+  struct XhciTRB *ring = (struct XhciTRB *)cmd_ring_phys;
+
+  // At ring initialization, place a Link TRB at index 255
+  ring[255].Parameter = cmd_ring_phys; // points back to start
+  ring[255].Status = 0;
+  ring[255].Control =
+      (TRB_TYPE_LINK << 10) | (1 << 1) | current_cycle_state; // TC bit set
+
   uint32_t control_bits = (trb_type << 10) | current_cycle_state;
 
-  // 2. Write the values directly into our RAM ring slot
-  ring[current_trb_index].Parameter =
-      0; // Enable Slot doesn't need a parameter pointer
+  ring[current_trb_index].Parameter = 0;
   ring[current_trb_index].Status = 0;
   ring[current_trb_index].Control = control_bits;
 
   printf("Posting TRB Type %d to Command Ring index %d...\n", trb_type,
          current_trb_index);
 
-  // 3. Increment our array tracker for the next command execution
   current_trb_index++;
-  if (current_trb_index >= 256) { // If we reach the end of your 256-sized array
+  if (current_trb_index >= 256) {
     current_trb_index = 0;
-    // In a complex driver, you would write a 'Link TRB' here to loop back the
-    // ring hardware
+    current_cycle_state ^= 1; // toggle cycle bit
   }
 
-  // 4. RING THE DOORBELL!
-  // Doorbell 0 controls the Host Controller Command processor.
-  // Writing 0 to the register maps to "Target 0", meaning "Execute Command
-  // Ring".
   volatile uint32_t *db_0 = get_xhci_doorbell_reg(xhci_base, cap_regs, 0);
   *db_0 = 0;
 
@@ -279,41 +279,49 @@ void setup_xhci_hardware(uint64_t xhci_base,
   // 2. Clear the Controller Configuration (Stops all processing)
   op_regs->Config = 0;
 
+  // Clear any existing error flags before configuring
   op_regs->UsbSts = 0xFFFFFFFF;
 
-  // 3. Set the DCBAAP address pointer
-  op_regs->Dcbaap = (uint64_t)(uintptr_t)&dcbaap;
+  // =========================================================================
+  // CRITICAL FIX: Strip upper canonical bits to pass pure physical RAM targets!
+  // =========================================================================
+  uint64_t dcbaap_phys  = ((uint64_t)(uintptr_t)&dcbaap);
+  uint64_t cmd_ring_phys = ((uint64_t)(uintptr_t)&command_ring);
+  uint64_t evt_ring_phys = ((uint64_t)(uintptr_t)&event_ring);
+  uint64_t erst_phys     = ((uint64_t)(uintptr_t)&erst);
+  // =========================================================================
 
-  // 4. Initialize and set the Command Ring Pointer
-  // Bit 0 is the "Cycle State" bit. Set it to 1 to tell xHCI the ring is ready.
-  uint64_t crcr_val = (uint64_t)(uintptr_t)&command_ring | 1; 
-  op_regs->Crcr = crcr_val;
+  // 3. Set the absolute physical DCBAAP address pointer
+  op_regs->Dcbaap = dcbaap_phys;
 
-  // 5. Configure the Event Ring Segment Table (ERST)
-  erst.RingSegmentBaseAddress = (uint64_t)(uintptr_t)&event_ring;
-  erst.RingSegmentSize = 256; // Matching our allocation size
+  // 4. Initialize and set the Command Ring Pointer (with cycle bit 0 = 1)
+  op_regs->Crcr = cmd_ring_phys | 1;
+
+  // 5. Configure the Event Ring Segment Table (ERST) memory data structures
+  erst.RingSegmentBaseAddress = evt_ring_phys;
+  erst.RingSegmentSize = 256; 
   erst.Reserved = 0;
 
-  // 6. Hook ERST into Interrupter 0
-  int_0->Erstsz = 1;               // We are using exactly 1 segment
-  int_0->Erstba = (uint64_t)(uintptr_t)&erst; // Point to the segment definition block
+  // 6. Hook our clean physical ERST address into Interrupter 0
+  int_0->Erstsz = 1;               
+  int_0->Erstba = erst_phys; 
 
+  // Mask out the lowest 4 bits to ensure the Event Ring Dequeue Pointer is 16-byte aligned
+  uint64_t erdp_val = evt_ring_phys & 0xFFFFFFFFFFFFFFF0ULL;
+  int_0->Erdp = erdp_val | (1 << 3); // Write 1 to bit 3 to clear Event Handler Busy (EHB)
 
-  uint64_t erdp_val = (uint64_t)(uintptr_t)&event_ring;
-  erdp_val &= 0xFFFFFFFFFFFFFFF0ULL;
-  int_0->Erdp = erdp_val | (1 << 3);
-
-  // 7. Enable the Interrupter (Disable interrupts if you don't use an IDT yet)
-  // Turning on IMAN bit 1 turns on system assertions, bit 0 clears pending flags
-  
+  // 7. Configure Interrupter Management (Iman) Register
+  // Clear status pending flags, keep Interrupt Enable (Bit 1) at 0!
   int_0->Iman = (1 << 0); 
 
-  // 8. Determine how many hardware slots to turn on
-  uint32_t max_slots = cap_regs->HcsParams1 & 0xFF; 
-  op_regs->Config = 1; // Turn on all available device connection tracks
+  // Flush any lingering status tracks out of the operational registers
+  op_regs->UsbSts = 0xFFFFFFFF;
+
+  // 8. Turn on EXACTLY 1 slot to prevent the hardware from checking unallocated structures
+  uint32_t max_slots = cap_regs->HcsParams1 & 0xFF;
+  op_regs->Config = max_slots;
 
   // 9. START THE CONTROLLER!
-  // Set Bit 0 (Run/Stop) in the USB Command Register to 1
   op_regs->UsbCmd |= (1 << 0);
 
   // Wait until the HCHalted bit (Bit 0) in USB Status drops to 0
