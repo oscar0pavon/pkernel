@@ -4,9 +4,7 @@
 #include "../types.h"
 #include "xhci.h"
 
-static uint64_t pcie_mmio_base_address = 0;
-
-uint64_t *get_pcie_mmio_address() { return &pcie_mmio_base_address; }
+uint64_t pcie_mmio_base_address = 0;
 
 void setup_pci() {
 

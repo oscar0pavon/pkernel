@@ -1,5 +1,6 @@
 #include "acpi.h"
 #include "console.h"
+#include "drivers/pci.h"
 #include "drivers/xhci.h"
 #include <stdint.h>
 
@@ -85,12 +86,12 @@ void parse_XSDT() {
           (struct MCFGStructureEntry *)(table_bytes + 44);
 
       // Read properties from the first entry directly
-      uint64_t* mmio = get_pcie_mmio_address();
-      *mmio = first_entry->BaseAddress;
-      //pcie_mmio_base_address = first_entry->BaseAddress;
+      //uint64_t* mmio = get_pcie_mmio_address();
+      //*mmio = first_entry->BaseAddress;
+      pcie_mmio_base_address = first_entry->BaseAddress;
 
       printf("--> SUCCESS! MCFG Entry 0 Base Address: %x\n",
-             *mmio);
+            pcie_mmio_base_address);
       printf("--> Bus Range: %d to %d\n", first_entry->StartBusNumber,
              first_entry->EndBusNumber);
 

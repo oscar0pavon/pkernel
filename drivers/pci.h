@@ -34,7 +34,7 @@
 #define PCI_CMD_BUS_MASTER   (1 << 2) 
 
 // Global pointer to track the discovered MMIO base address
-//extern uint64_t pcie_mmio_base_address;
+extern uint64_t pcie_mmio_base_address;
 
 typedef struct PciDevice {
 	u8 bus;
