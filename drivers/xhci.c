@@ -21,6 +21,9 @@ aligned4k volatile struct XhciInputContext  input_ctx  = {0};
 aligned4k volatile struct XhciDeviceContext device_ctx = {0};
 aligned4k volatile struct XhciTRB           ep0_ring[256] = {0};
 
+// DMA receive buffer for USB descriptors
+aligned4k volatile uint8_t descriptor_buffer[64] = {0};
+
 XHCIDevice xhci_dev = {0};
 
 // Tracking state for command/event rings
@@ -390,6 +393,116 @@ uint32_t xhci_poll_event_ring(void) {
 }
 
 // ============================================================================
+// EVENT RING: Poll for a Transfer Event (TRB type 32) on EP0.
+// Returns 1 on Success (code 1) or Short Packet (code 13), 0 on error/timeout.
+// ============================================================================
+uint32_t xhci_poll_transfer_event(void) {
+  uint32_t timeout = 2000000;
+
+  while (timeout--) {
+    volatile struct XhciEventTRB *event = &event_ring[event_ring_dequeue];
+
+    if ((event->Control & 1) == event_ring_cycle) {
+      uint32_t trb_type        = (event->Control >> 10) & 0x3F;
+      uint32_t completion_code = (event->Status  >> 24) & 0xFF;
+      uint32_t slot_id         = (event->Control >> 24) & 0xFF;
+
+      printf("EVT: type=%d code=%d slot=%d\n", trb_type, completion_code, slot_id);
+
+      event_ring_dequeue++;
+      if (event_ring_dequeue >= 256) {
+        event_ring_dequeue = 0;
+        event_ring_cycle ^= 1;
+      }
+      uint64_t erdp = (uint64_t)&event_ring[event_ring_dequeue] | (1 << 3);
+      xhci_dev.int_0_regs->Erdp = erdp;
+
+      if (trb_type == TRB_TYPE_TRANSFER_EVENT) {
+        if (completion_code == 1 || completion_code == 13) {
+          return 1;
+        }
+        printf("ERROR: Transfer completion code %d\n", completion_code);
+        return 0;
+      }
+      // Consume non-transfer events and keep polling
+    }
+
+    __asm__("pause");
+  }
+
+  printf("ERROR: Transfer event timed out (USBSTS=0x%x)\n", xhci_dev.op_regs->UsbSts);
+  return 0;
+}
+
+// ============================================================================
+// STEP 9: GET_DESCRIPTOR via EP0 control transfer (xHCI spec 4.11.2.2)
+// Submits Setup + Data + Status TRBs on EP0, rings doorbell, reads descriptor.
+// ============================================================================
+void xhci_get_descriptor(uint32_t slot_id, uint8_t desc_type, uint16_t length) {
+  printf("=== STEP 9: GET_DESCRIPTOR (type=0x%x, len=%d) ===\n", desc_type, length);
+
+  // 8-byte USB SETUP packet (little-endian in a uint64_t):
+  // bmRequestType=0x80 | bRequest=0x06 | wValue=(desc_type<<8) | wIndex=0 | wLength=length
+  uint64_t setup = (uint64_t)0x80
+                 | ((uint64_t)0x06      << 8)
+                 | ((uint64_t)desc_type << 24)
+                 | ((uint64_t)length    << 48);
+
+  // Clear receive buffer
+  for (uint32_t i = 0; i < 64; i++) descriptor_buffer[i] = 0;
+
+  // 1. Setup Stage TRB: setup packet in Parameter field (IDT=1),
+  //    TRT=3 (IN data stage follows), TRB Type=2
+  volatile struct XhciTRB *setup_trb = &ep0_ring[ep0_enqueue++];
+  setup_trb->Parameter = setup;
+  setup_trb->Status    = 8;  // TRB Transfer Length = 8 (size of SETUP packet)
+  setup_trb->Control   = (TRB_TYPE_SETUP_STAGE << 10) | (3U << 16) | (1U << 6) | ep0_cycle;
+
+  // 2. Data Stage TRB: receive buffer pointer, DIR=1 (IN from device)
+  volatile struct XhciTRB *data_trb = &ep0_ring[ep0_enqueue++];
+  data_trb->Parameter = (uint64_t)descriptor_buffer;
+  data_trb->Status    = length;
+  data_trb->Control   = (TRB_TYPE_DATA_STAGE << 10) | (1U << 16) | ep0_cycle;
+
+  // 3. Status Stage TRB: DIR=0 (OUT, opposite of IN data), IOC=1
+  volatile struct XhciTRB *status_trb = &ep0_ring[ep0_enqueue++];
+  status_trb->Parameter = 0;
+  status_trb->Status    = 0;
+  status_trb->Control   = (TRB_TYPE_STATUS_STAGE << 10) | (1U << 5) | ep0_cycle;
+
+  // Ring EP0 doorbell (DB Target 1 = EP0 bidirectional)
+  printf("Ringing EP0 doorbell for slot %d\n", slot_id);
+  xhci_dev.doorbell_regs[slot_id] = 1;
+
+  if (!xhci_poll_transfer_event()) {
+    printf("ERROR: GET_DESCRIPTOR failed\n");
+    return;
+  }
+
+  // Parse Device Descriptor fields
+  uint8_t  bLength            = descriptor_buffer[0];
+  uint8_t  bDescriptorType    = descriptor_buffer[1];
+  uint16_t bcdUSB             = (uint16_t)descriptor_buffer[2] | ((uint16_t)descriptor_buffer[3] << 8);
+  uint8_t  bDeviceClass       = descriptor_buffer[4];
+  uint8_t  bMaxPacketSize0    = descriptor_buffer[7];
+  uint16_t idVendor           = (uint16_t)descriptor_buffer[8]  | ((uint16_t)descriptor_buffer[9]  << 8);
+  uint16_t idProduct          = (uint16_t)descriptor_buffer[10] | ((uint16_t)descriptor_buffer[11] << 8);
+  uint8_t  bNumConfigurations = descriptor_buffer[17];
+
+  printf("Device Descriptor:\n");
+  printf("  bLength:            %d\n", bLength);
+  printf("  bDescriptorType:    %d\n", bDescriptorType);
+  printf("  bcdUSB:             0x%x\n", bcdUSB);
+  printf("  bDeviceClass:       0x%x\n", bDeviceClass);
+  printf("  bMaxPacketSize0:    %d\n", bMaxPacketSize0);
+  printf("  idVendor:           0x%x\n", idVendor);
+  printf("  idProduct:          0x%x\n", idProduct);
+  printf("  bNumConfigurations: %d\n", bNumConfigurations);
+
+  printf("=== STEP 9: COMPLETE ===\n\n");
+}
+
+// ============================================================================
 // STEP 7: ENABLE SLOT (xHCI spec 4.3.2)
 // Sends an Enable Slot command and waits for the controller to assign a slot.
 // ============================================================================
@@ -496,7 +609,8 @@ void xhci_address_device(uint32_t slot_id, uint32_t port) {
 
   printf("Slot %d is now in Addressed state.\n", slot_id);
   printf("=== STEP 8: COMPLETE ===\n\n");
-  // Next: GET_DESCRIPTOR (Setup stage on EP0) to read device descriptor.
+
+  xhci_get_descriptor(slot_id, USB_DESC_TYPE_DEVICE, 18);
 }
 
 // ============================================================================

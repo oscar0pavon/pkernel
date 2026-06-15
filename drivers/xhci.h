@@ -9,11 +9,17 @@
 #define PCI_INTERFACE_XHCI 0x30
 
 // TRB Types (xHCI spec Table 6-91)
+#define TRB_TYPE_SETUP_STAGE              2
+#define TRB_TYPE_DATA_STAGE               3
+#define TRB_TYPE_STATUS_STAGE             4
 #define TRB_TYPE_ENABLE_SLOT              9
 #define TRB_TYPE_ADDRESS_DEVICE           11
 #define TRB_TYPE_LINK                     6
 #define TRB_TYPE_TRANSFER_EVENT           32
 #define TRB_TYPE_COMMAND_COMPLETION_EVENT 33
+
+// USB Descriptor types
+#define USB_DESC_TYPE_DEVICE 1
 
 // EP Type field for Endpoint Context dw1[5:3]
 #define EP_TYPE_CONTROL_BIDIR 4
@@ -190,5 +196,11 @@ uint32_t xhci_poll_event_ring(void);  // returns slot_id on success, 0 on error
 // Device enumeration
 void xhci_enable_slot(uint32_t port);
 void xhci_address_device(uint32_t slot_id, uint32_t port);
+
+// USB control transfers
+uint32_t xhci_poll_transfer_event(void);
+void xhci_get_descriptor(uint32_t slot_id, uint8_t desc_type, uint16_t length);
+
+extern volatile uint8_t descriptor_buffer[64];
 
 #endif
