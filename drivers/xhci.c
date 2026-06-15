@@ -503,6 +503,43 @@ void xhci_get_descriptor(uint32_t slot_id, uint8_t desc_type, uint16_t length) {
 }
 
 // ============================================================================
+// STEP 10: Evaluate Context — update EP0 MPS if device reports a different
+// value than the speed-based default set during Address Device (xHCI 4.3.3).
+// ============================================================================
+void xhci_evaluate_context(uint32_t slot_id, uint8_t new_mps) {
+  printf("=== STEP 10: Evaluate Context (new EP0 MPS=%d) ===\n", new_mps);
+
+  // Reuse input_ctx: only A1 (EP0) is set; slot context is not evaluated
+  memset((void *)&input_ctx, 0, sizeof(input_ctx));
+  input_ctx.ctrl.drop_flags = 0;
+  input_ctx.ctrl.add_flags  = (1U << 1);  // A1 = EP0 only
+  input_ctx.ep0.dw1 = (3U << 1) | (EP_TYPE_CONTROL_BIDIR << 3) | ((uint32_t)new_mps << 16);
+
+  volatile struct XhciTRB *trb = &command_ring[command_ring_enqueue];
+  trb->Parameter = (uint64_t)&input_ctx;
+  trb->Status    = 0;
+  trb->Control   = (TRB_TYPE_EVALUATE_CONTEXT << 10)
+                 | ((uint32_t)slot_id << 24)
+                 | command_ring_cycle;
+
+  command_ring_enqueue++;
+  if (command_ring_enqueue == 255) {
+    command_ring[255].Control = (TRB_TYPE_LINK << 10) | (1 << 1) | command_ring_cycle;
+    command_ring_cycle ^= 1;
+    command_ring_enqueue = 0;
+  }
+  xhci_dev.doorbell_regs[0] = 0;
+
+  if (!xhci_poll_event_ring()) {
+    printf("ERROR: Evaluate Context failed\n");
+    return;
+  }
+
+  printf("EP0 MPS updated to %d\n", new_mps);
+  printf("=== STEP 10: COMPLETE ===\n\n");
+}
+
+// ============================================================================
 // STEP 7: ENABLE SLOT (xHCI spec 4.3.2)
 // Sends an Enable Slot command and waits for the controller to assign a slot.
 // ============================================================================
@@ -611,6 +648,14 @@ void xhci_address_device(uint32_t slot_id, uint32_t port) {
   printf("=== STEP 8: COMPLETE ===\n\n");
 
   xhci_get_descriptor(slot_id, USB_DESC_TYPE_DEVICE, 18);
+
+  // Step 10: if reported EP0 MPS differs from the speed-based default, update it
+  uint8_t reported_mps = descriptor_buffer[7];
+  if (reported_mps != mps) {
+    xhci_evaluate_context(slot_id, reported_mps);
+  } else {
+    printf("=== STEP 10: EP0 MPS confirmed (%d), no update needed ===\n\n", mps);
+  }
 }
 
 // ============================================================================
