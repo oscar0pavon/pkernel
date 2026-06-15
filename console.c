@@ -24,7 +24,7 @@ static uint32_t console_max_cols  = 0;
 
 void console_init(void) {
   FrameBuffer *fb = get_framebuffer();
-  console_max_lines = fb->vertical_resolution / 16;
+  console_max_lines = (fb->vertical_resolution / 16) - 1;
   console_max_cols  = fb->horizontal_resolution / 8;
 }
 
