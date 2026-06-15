@@ -107,23 +107,24 @@ struct EventRingSegmentEntry {
   uint32_t Reserved;
 } __attribute__((packed));
 
+typedef struct EventRingSegmentEntry EventRingSegmentEntry;
+
 typedef struct XHCIDevice{
   volatile uint32_t *pci_regs;
   volatile XhciCapabilityRegs *cap_regs;
   volatile XhciOperationalRegs *op_regs;
 }XHCIDevice;
 
-extern XHCIDevice xhci_device;
+extern XHCIDevice xhci_dev;
 
 void xhci_set_base_address(u64 address);
 void xhci_init();
 
 void init_xhci_driver(void);
 
-void setup_xhci_hardware(volatile XhciCapabilityRegs *cap_regs,
-                         volatile XhciOperationalRegs *op_regs);
+void setup_xhci_hardware(void);
 
-void test_xhci_dma_identity(volatile XhciOperationalRegs *op_regs);
+void test_xhci_dma_identity(void);
 
 
 #endif

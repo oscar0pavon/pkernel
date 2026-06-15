@@ -41,7 +41,7 @@ void setup_pci() {
         if (prog_if == PCI_INTERFACE_XHCI) {
 
           printf("xHCI Device Found at Slot %d, Func %d!\n", dev, func);
-          xhci_device.pci_regs = pci_regs;
+          xhci_dev.pci_regs = pci_regs;
 
           // 1. MANDATORY: 
           // Enable Memory Space and Bus Mastering in Command Reg
