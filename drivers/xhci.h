@@ -9,6 +9,7 @@
 #define PCI_INTERFACE_XHCI 0x30
 
 // TRB Types (xHCI spec Table 6-91)
+#define TRB_TYPE_NORMAL                   1
 #define TRB_TYPE_SETUP_STAGE              2
 #define TRB_TYPE_DATA_STAGE               3
 #define TRB_TYPE_STATUS_STAGE             4
@@ -212,6 +213,7 @@ void xhci_evaluate_context(uint32_t slot_id, uint8_t new_mps);
 void xhci_get_config_descriptor(uint32_t slot_id);
 void xhci_set_configuration(uint32_t slot_id, uint8_t config_val);
 void xhci_get_hid_report_descriptor(uint32_t slot_id);
+void xhci_poll_keyboard(uint32_t slot_id);
 
 extern volatile uint8_t descriptor_buffer[256];
 extern volatile struct XhciTRB ep1in_ring[256];

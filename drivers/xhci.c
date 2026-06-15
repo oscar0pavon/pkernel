@@ -771,6 +771,113 @@ void xhci_set_configuration(uint32_t slot_id, uint8_t config_val) {
 }
 
 // ============================================================================
+// STEP 14: Interrupt IN keyboard polling (xHCI spec 4.11.3)
+// Queues Normal TRBs on ep1in_ring, rings EP1 IN doorbell, and decodes
+// incoming 8-byte HID Boot Protocol reports into ASCII characters.
+// ============================================================================
+
+// USB HID Usage Page 0x07 keycode → ASCII (indices 0x00–0x38)
+static const char kbd_ascii[2][57] = {
+  // unshifted
+  { 0,   0,   0,   0,   'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l',
+    'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
+    '1', '2', '3', '4', '5', '6', '7', '8', '9', '0',
+    '\n', 0, '\b', '\t', ' ', '-', '=', '[', ']', '\\', 0, ';', '\'', '`', ',', '.', '/' },
+  // shifted
+  { 0,   0,   0,   0,   'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L',
+    'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
+    '!', '@', '#', '$', '%', '^', '&', '*', '(', ')',
+    '\n', 0, '\b', '\t', ' ', '_', '+', '{', '}', '|',  0, ':', '"',  '~', '<', '>', '?' },
+};
+
+static volatile uint8_t kbd_report[8] = {0};
+
+// Spin on the event ring until a Transfer Event arrives — no timeout so we
+// do not spam error messages during the 10 ms keyboard polling interval.
+static uint32_t xhci_wait_ep1in_event(void) {
+  while (1) {
+    volatile struct XhciEventTRB *ev = &event_ring[event_ring_dequeue];
+    if ((ev->Control & 1) == event_ring_cycle) {
+      uint32_t trb_type        = (ev->Control >> 10) & 0x3F;
+      uint32_t completion_code = (ev->Status  >> 24) & 0xFF;
+
+      event_ring_dequeue++;
+      if (event_ring_dequeue >= 256) {
+        event_ring_dequeue = 0;
+        event_ring_cycle ^= 1;
+      }
+      xhci_dev.int_0_regs->Erdp =
+        (uint64_t)&event_ring[event_ring_dequeue] | (1U << 3);
+
+      if (trb_type == TRB_TYPE_TRANSFER_EVENT)
+        return (completion_code == 1 || completion_code == 13) ? 1 : 0;
+      // consume non-transfer events (port status change, etc.) and keep waiting
+    }
+    __asm__("pause");
+  }
+}
+
+void xhci_poll_keyboard(uint32_t slot_id) {
+  printf("=== STEP 14: Keyboard polling (slot %d, EP%d IN, MPS=%d) ===\n",
+         slot_id, ep1_in_number, ep1_in_mps);
+
+  uint32_t db_target  = (uint32_t)ep1_in_number * 2 + 1;
+  uint16_t report_sz  = ep1_in_mps ? ep1_in_mps : 8;
+  uint8_t  prev_kc[6] = {0};
+
+  while (1) {
+    // Queue one Normal TRB pointing at kbd_report
+    volatile struct XhciTRB *trb = &ep1in_ring[ep1in_enqueue];
+    trb->Parameter = (uint64_t)kbd_report;
+    trb->Status    = report_sz;
+    // IOC=1 (interrupt on completion), ISP=1 (interrupt on short packet)
+    trb->Control   = (TRB_TYPE_NORMAL << 10) | (1U << 5) | (1U << 2) | ep1in_cycle;
+    ep1in_enqueue++;
+    if (ep1in_enqueue >= 255) {
+      ep1in_ring[255].Control =
+        (TRB_TYPE_LINK << 10) | (1U << 1) | ep1in_cycle;
+      ep1in_cycle ^= 1;
+      ep1in_enqueue = 0;
+    }
+
+    xhci_dev.doorbell_regs[slot_id] = db_target;
+
+    if (!xhci_wait_ep1in_event()) continue;
+
+    // Boot Protocol report: [modifier][reserved][kc0]..[kc5]
+    uint8_t modifier = kbd_report[0];
+    uint8_t shifted  = (modifier & 0x22) ? 1 : 0;  // bit1=LShift, bit5=RShift
+
+    for (int i = 2; i < 8; i++) {
+      uint8_t kc = kbd_report[i];
+      if (kc == 0) continue;
+
+      // Skip keys still held from the previous report (no software repeat)
+      int held = 0;
+      for (int j = 0; j < 6; j++) if (prev_kc[j] == kc) { held = 1; break; }
+      if (held) continue;
+
+      // Translate to ASCII
+      if (kc < 57) {
+        char c = kbd_ascii[shifted][kc];
+        if (c == '\n') {
+          printf("\n");
+        } else if (c == '\b') {
+          printf("<BS>");
+        } else if (c >= ' ' && c <= '~') {
+          char s[2] = {c, '\0'};
+          printf("%s", s);
+        }
+      } else if (kc >= 0x3A && kc <= 0x45) {
+        printf("<F%d>", kc - 0x39);
+      }
+    }
+
+    for (int i = 0; i < 6; i++) prev_kc[i] = kbd_report[i + 2];
+  }
+}
+
+// ============================================================================
 // STEP 13: GET_DESCRIPTOR HID Report Descriptor (USB HID spec 7.1.1)
 // bmRequestType=0x81 (D-to-H, Standard, Interface), bRequest=0x06,
 // wValue=0x2200 (type=HID Report, index=0), wIndex=0, wLength=hid_report_len
@@ -978,6 +1085,7 @@ void xhci_address_device(uint32_t slot_id, uint32_t port) {
   xhci_set_configuration(slot_id, config_val);
 
   xhci_get_hid_report_descriptor(slot_id);  // Step 13
+  xhci_poll_keyboard(slot_id);              // Step 14 — does not return
 }
 
 // ============================================================================
