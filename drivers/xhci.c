@@ -16,6 +16,11 @@ aligned4k volatile struct XhciEventTRB event_ring[256] = {0};
 // Using aligned4k caused erst to share the same 4K address as event_ring.
 __attribute__((aligned(64))) volatile struct EventRingSegmentEntry erst = {0};
 
+// Address Device buffers (one slot supported for now)
+aligned4k volatile struct XhciInputContext  input_ctx  = {0};
+aligned4k volatile struct XhciDeviceContext device_ctx = {0};
+aligned4k volatile struct XhciTRB           ep0_ring[256] = {0};
+
 XHCIDevice xhci_dev = {0};
 
 // Tracking state for command/event rings
@@ -24,6 +29,9 @@ uint32_t command_ring_cycle = 1;
 
 uint32_t event_ring_dequeue = 0;
 uint32_t event_ring_cycle = 1;
+
+uint32_t ep0_enqueue = 0;
+uint32_t ep0_cycle   = 1;
 
 // ============================================================================
 // STEP 1: RESET CONTROLLER (xHCI Spec 4.2.1)
@@ -399,8 +407,96 @@ void xhci_enable_slot(uint32_t port) {
   printf("Port %d -> slot %d assigned\n", port + 1, slot_id);
   printf("=== STEP 7: COMPLETE ===\n\n");
 
-  // Next: xhci_address_device(slot_id, port) to set up Input Context
-  // and move the slot to the Addressed state.
+  xhci_address_device(slot_id, port);
+}
+
+// ============================================================================
+// STEP 8: ADDRESS DEVICE (xHCI spec 4.3.3 / 4.6.5)
+// Builds Input Context with Slot + EP0, sets DCBAAP[slot], sends
+// Address Device command (BSR=0 → controller issues USB SET_ADDRESS).
+// ============================================================================
+void xhci_address_device(uint32_t slot_id, uint32_t port) {
+  printf("=== STEP 8: Address Device (slot %d, port %d) ===\n", slot_id, port + 1);
+
+  // Read port speed from PORTSC bits [13:10]
+  uint32_t portsc = xhci_dev.op_regs->PortRegisterSet[port].PortSc;
+  uint8_t  speed  = (portsc >> 10) & 0x0F;
+  printf("Speed code: %d\n", speed);
+
+  // EP0 max packet size for initial enumeration (xHCI spec 4.8.2.1)
+  // Speed: 1=Full, 2=Low, 3=High, 4=SuperSpeed
+  uint16_t mps;
+  switch (speed) {
+    case 3:  mps = 64;  break;  // High Speed
+    case 4:  mps = 512; break;  // SuperSpeed Gen1x1
+    case 2:  mps = 8;   break;  // Low Speed
+    default: mps = 8;   break;  // Full Speed (safe default for enumeration)
+  }
+  printf("EP0 max packet size: %d\n", mps);
+
+  // === EP0 Transfer Ring ===
+  memset((void *)ep0_ring, 0, sizeof(ep0_ring));
+  volatile struct XhciTRB *link = &ep0_ring[255];
+  link->Parameter = (uint64_t)&ep0_ring[0];
+  link->Status    = 0;
+  link->Control   = (TRB_TYPE_LINK << 10) | (1 << 1) | 1;
+  ep0_enqueue = 0;
+  ep0_cycle   = 1;
+
+  // === Input Context ===
+  memset((void *)&input_ctx, 0, sizeof(input_ctx));
+
+  // Input Control Context: A0 (slot) + A1 (EP0)
+  input_ctx.ctrl.add_flags = (1U << 0) | (1U << 1);
+
+  // Slot Context dw0: Context Entries=1, Speed, Route String=0
+  input_ctx.slot.dw0 = ((uint32_t)speed << 20) | (1U << 27);
+  // Slot Context dw1: Root Hub Port Number (1-indexed)
+  input_ctx.slot.dw1 = (uint32_t)(port + 1) << 16;
+
+  // EP0 Endpoint Context
+  // dw1: CErr=3, EP Type=Control Bidirectional(4), Max Packet Size
+  input_ctx.ep0.dw1 = (3U << 1) | (EP_TYPE_CONTROL_BIDIR << 3) | ((uint32_t)mps << 16);
+  // dw2/dw3: TR Dequeue Pointer | DCS=1
+  uint64_t ep0_addr = (uint64_t)&ep0_ring[0];
+  input_ctx.ep0.dw2 = (uint32_t)(ep0_addr & ~0xFULL) | 1;
+  input_ctx.ep0.dw3 = (uint32_t)(ep0_addr >> 32);
+  // dw4: Average TRB Length = 8 (standard for control endpoints)
+  input_ctx.ep0.dw4 = 8;
+
+  printf("Input Context:  0x%lx\n", (uint64_t)&input_ctx);
+  printf("Device Context: 0x%lx\n", (uint64_t)&device_ctx);
+
+  // === Point DCBAAP[slot_id] at the output Device Context ===
+  dcbaap[slot_id] = (uint64_t)&device_ctx;
+
+  // === Address Device TRB ===
+  // Parameter = Input Context pointer (16-byte aligned, page-aligned here)
+  // Control:  TRB Type[15:10]=11 | BSR[9]=0 | Slot ID[31:24] | Cycle[0]
+  volatile struct XhciTRB *trb = &command_ring[command_ring_enqueue];
+  trb->Parameter = (uint64_t)&input_ctx;
+  trb->Status    = 0;
+  trb->Control   = (TRB_TYPE_ADDRESS_DEVICE << 10)
+                 | ((uint32_t)slot_id << 24)
+                 | command_ring_cycle;
+
+  command_ring_enqueue++;
+  if (command_ring_enqueue == 255) {
+    command_ring[255].Control = (TRB_TYPE_LINK << 10) | (1 << 1) | command_ring_cycle;
+    command_ring_cycle ^= 1;
+    command_ring_enqueue = 0;
+  }
+  xhci_dev.doorbell_regs[0] = 0;
+
+  uint32_t result = xhci_poll_event_ring();
+  if (result == 0) {
+    printf("ERROR: Address Device failed on slot %d\n", slot_id);
+    return;
+  }
+
+  printf("Slot %d is now in Addressed state.\n", slot_id);
+  printf("=== STEP 8: COMPLETE ===\n\n");
+  // Next: GET_DESCRIPTOR (Setup stage on EP0) to read device descriptor.
 }
 
 // ============================================================================

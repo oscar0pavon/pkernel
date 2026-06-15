@@ -8,11 +8,15 @@
 #define MY_USB_ID 0x7a60
 #define PCI_INTERFACE_XHCI 0x30
 
-// TRB Types
-#define TRB_TYPE_ENABLE_SLOT    9
-#define TRB_TYPE_LINK           6
-#define TRB_TYPE_TRANSFER_EVENT 32
-#define TRB_TYPE_COMMAND_COMPLETION_EVENT 33  // xHCI spec Table 6-91
+// TRB Types (xHCI spec Table 6-91)
+#define TRB_TYPE_ENABLE_SLOT              9
+#define TRB_TYPE_ADDRESS_DEVICE           11
+#define TRB_TYPE_LINK                     6
+#define TRB_TYPE_TRANSFER_EVENT           32
+#define TRB_TYPE_COMMAND_COMPLETION_EVENT 33
+
+// EP Type field for Endpoint Context dw1[5:3]
+#define EP_TYPE_CONTROL_BIDIR 4
 
 // ============================================================================
 // REGISTER STRUCTURES
@@ -100,22 +104,47 @@ struct EventRingSegmentEntry {
 typedef struct EventRingSegmentEntry EventRingSegmentEntry;
 
 // ============================================================================
-// DEVICE CONTEXT (for future use - device enumeration phase)
+// DEVICE CONTEXT STRUCTURES (xHCI spec 6.2)
+// Every context entry is exactly 32 bytes (8 DWORDs).
 // ============================================================================
 
-// Placeholder - you'll expand this when implementing device enumeration
+// Slot Context (spec 6.2.2)
 struct XhciSlotContext {
-  uint32_t RouteString;
-  uint32_t DeviceSpeed;
-  // ... more fields as needed
+  uint32_t dw0; // RouteString[19:0] | Speed[23:20] | MTT[24] | Hub[25] | CtxEntries[31:27]
+  uint32_t dw1; // MaxExitLatency[15:0] | RootHubPortNum[23:16] | NumPorts[31:24]
+  uint32_t dw2; // ParentHubSlotId[7:0] | ParentPortNum[15:8] | TTThinkTime[17:16]
+  uint32_t dw3; // DevAddr[7:0] | SlotState[31:27]
+  uint32_t reserved[4];
 } __attribute__((packed));
 
+// Endpoint Context (spec 6.2.3)
+struct XhciEndpointContext {
+  uint32_t dw0; // EPState[2:0] | Mult[9:8] | MaxPStreams[14:10] | Interval[23:16]
+  uint32_t dw1; // CErr[2:1] | EPType[5:3] | MaxBurstSize[15:8] | MaxPacketSize[31:16]
+  uint32_t dw2; // DCS[0] | TRDequeuePtr_lo[31:4]
+  uint32_t dw3; // TRDequeuePtr_hi[31:0]
+  uint32_t dw4; // AvgTRBLength[15:0] | MaxESITPayload[31:16]
+  uint32_t reserved[3];
+} __attribute__((packed));
+
+// Input Control Context (spec 6.2.5.1)
+struct XhciInputControlContext {
+  uint32_t drop_flags; // D[31:2]; D0/D1 are RsvdZ
+  uint32_t add_flags;  // A[31:0]; A0=slot, A1=EP0, A2=EP1-OUT, ...
+  uint32_t reserved[6];
+} __attribute__((packed));
+
+// Input Context = Control + Slot + EP0  (96 bytes for Address Device)
 struct XhciInputContext {
-  uint32_t DropContextFlags;
-  uint32_t AddContextFlags;
-  uint32_t Reserved[6];
-  struct XhciSlotContext SlotContext;
-  // EndpointContexts would follow
+  struct XhciInputControlContext ctrl; // offset 0x00
+  struct XhciSlotContext         slot; // offset 0x20
+  struct XhciEndpointContext     ep0;  // offset 0x40
+} __attribute__((packed));
+
+// Output Device Context = Slot + EP0  (64 bytes; DCBAAP[slot] points here)
+struct XhciDeviceContext {
+  struct XhciSlotContext     slot; // offset 0x00
+  struct XhciEndpointContext ep0;  // offset 0x20
 } __attribute__((packed));
 
 // ============================================================================
@@ -158,8 +187,8 @@ void xhci_print_status(void);
 void xhci_send_command(uint32_t trb_type, uint64_t parameter);
 uint32_t xhci_poll_event_ring(void);  // returns slot_id on success, 0 on error
 
-// Device enumeration (to be implemented)
+// Device enumeration
 void xhci_enable_slot(uint32_t port);
-void xhci_address_device(uint32_t slot_id);
+void xhci_address_device(uint32_t slot_id, uint32_t port);
 
 #endif
