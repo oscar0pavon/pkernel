@@ -21,8 +21,9 @@
 #define TRB_TYPE_COMMAND_COMPLETION_EVENT 33
 
 // USB Descriptor types
-#define USB_DESC_TYPE_DEVICE 1
-#define USB_DESC_TYPE_CONFIG 2
+#define USB_DESC_TYPE_DEVICE     1
+#define USB_DESC_TYPE_CONFIG     2
+#define USB_DESC_TYPE_HID_REPORT 0x22
 
 // EP Type field for Endpoint Context dw1[5:3]
 #define EP_TYPE_CONTROL_BIDIR 4
@@ -210,6 +211,7 @@ void xhci_get_descriptor(uint32_t slot_id, uint8_t desc_type, uint16_t length);
 void xhci_evaluate_context(uint32_t slot_id, uint8_t new_mps);
 void xhci_get_config_descriptor(uint32_t slot_id);
 void xhci_set_configuration(uint32_t slot_id, uint8_t config_val);
+void xhci_get_hid_report_descriptor(uint32_t slot_id);
 
 extern volatile uint8_t descriptor_buffer[256];
 extern volatile struct XhciTRB ep1in_ring[256];

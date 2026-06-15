@@ -771,6 +771,50 @@ void xhci_set_configuration(uint32_t slot_id, uint8_t config_val) {
 }
 
 // ============================================================================
+// STEP 13: GET_DESCRIPTOR HID Report Descriptor (USB HID spec 7.1.1)
+// bmRequestType=0x81 (D-to-H, Standard, Interface), bRequest=0x06,
+// wValue=0x2200 (type=HID Report, index=0), wIndex=0, wLength=hid_report_len
+// ============================================================================
+void xhci_get_hid_report_descriptor(uint32_t slot_id) {
+  printf("=== STEP 13: GET_DESCRIPTOR HID Report (len=%d) ===\n", hid_report_len);
+
+  if (hid_report_len == 0) {
+    printf("ERROR: hid_report_len not set (Step 11 may have failed)\n");
+    return;
+  }
+
+  uint16_t req_len = (hid_report_len > 256) ? 256 : hid_report_len;
+  for (uint32_t i = 0; i < 256; i++) descriptor_buffer[i] = 0;
+
+  // bmRequestType=0x81: D-to-H, Standard, Interface recipient
+  // wValue high=0x22 (HID Report Descriptor type), wIndex=0 (interface 0)
+  uint64_t setup = (uint64_t)0x81
+                 | ((uint64_t)0x06 << 8)
+                 | ((uint64_t)USB_DESC_TYPE_HID_REPORT << 24)
+                 | ((uint64_t)req_len << 48);
+
+  if (!ep0_control_in(slot_id, setup, descriptor_buffer, req_len)) {
+    printf("ERROR: GET_DESCRIPTOR HID Report failed\n");
+    return;
+  }
+
+  // Print raw descriptor bytes, 16 per line
+  static const char hex_ch[] = "0123456789abcdef";
+  printf("HID Report Descriptor (%d bytes):\n", req_len);
+  for (uint16_t i = 0; i < req_len; i++) {
+    uint8_t b = descriptor_buffer[i];
+    char    hi = hex_ch[(b >> 4) & 0xF];
+    char    lo = hex_ch[b & 0xF];
+    char    s[4] = {hi, lo, ' ', '\0'};
+    printf("%s", s);
+    if ((i + 1) % 16 == 0) printf("\n");
+  }
+  if (req_len % 16 != 0) printf("\n");
+
+  printf("=== STEP 13: COMPLETE ===\n\n");
+}
+
+// ============================================================================
 // STEP 10: Evaluate Context — update EP0 MPS if device reports a different
 // value than the speed-based default set during Address Device (xHCI 4.3.3).
 // ============================================================================
@@ -932,6 +976,8 @@ void xhci_address_device(uint32_t slot_id, uint32_t port) {
   // Step 12: SET_CONFIGURATION + Configure Endpoint
   uint8_t config_val = descriptor_buffer[5];  // bConfigurationValue from Config Descriptor
   xhci_set_configuration(slot_id, config_val);
+
+  xhci_get_hid_report_descriptor(slot_id);  // Step 13
 }
 
 // ============================================================================
