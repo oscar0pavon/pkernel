@@ -123,4 +123,7 @@ void init_xhci_driver(void);
 void setup_xhci_hardware(volatile XhciCapabilityRegs *cap_regs,
                          volatile XhciOperationalRegs *op_regs);
 
+void test_xhci_dma_identity(volatile XhciOperationalRegs *op_regs);
+
+
 #endif

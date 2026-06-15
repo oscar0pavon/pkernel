@@ -77,8 +77,9 @@ void init_xhci_driver(void) {
   
   op_regs->UsbSts = 0xFFFFFFFF;
 
+  test_xhci_dma_identity(op_regs);
 
-  setup_xhci_hardware(cap_regs, op_regs);
+  //setup_xhci_hardware(cap_regs, op_regs);
   
 }
 void poll_xhci_event_ring(volatile XhciCapabilityRegs *cap_regs,
@@ -295,8 +296,7 @@ void setup_xhci_hardware(volatile XhciCapabilityRegs *cap_regs,
   scan_xhci_ports(cap_regs, op_regs);
 }
 
-void test_xhci_dma_identity(uint64_t xhci_base,
-                            volatile struct XhciOperationalRegs *op_regs) {
+void test_xhci_dma_identity(volatile XhciOperationalRegs *op_regs) {
   // 1. Point op_regs->Dcbaap to our global array using its compiler virtual
   // address We place a recognizable magic signature right inside index 0
   dcbaap[0] = 0x1122334455667788ULL;
@@ -325,4 +325,3 @@ void test_xhci_dma_identity(uint64_t xhci_base,
   }
   printf("--------------------------------\n");
 }
-
