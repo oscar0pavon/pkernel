@@ -54,6 +54,48 @@ uint8_t  ep1_in_number   = 1;
 uint16_t hid_report_len  = 0;
 
 // ============================================================================
+// DEBUG: Print status register bits
+// ============================================================================
+void xhci_print_status(void) {
+  uint32_t status = xhci_dev.op_regs->UsbSts;
+
+  printf("USBSTS bits:\n");
+  printf("  HCHalted (0): %d\n", (status >> 0) & 1);
+  printf("  HSE (2):      %d\n", (status >> 2) & 1);
+  printf("  HCE (12):     %d\n", (status >> 12) & 1);
+  printf("  CNR (11):     %d\n", (status >> 11) & 1);
+  printf("  Raw value: 0x%x\n", status);
+}
+
+// ============================================================================
+// TEST: Verify address translation (optional, you already did this)
+// ============================================================================
+void xhci_test_dma_identity(void) {
+  printf("=== DMA Address Translation Test ===\n");
+
+  dcbaap[0] = 0x1122334455667788ULL;
+  xhci_dev.op_regs->Dcbaap = (uint64_t)&dcbaap[0];
+
+  uint64_t hardware_address = xhci_dev.op_regs->Dcbaap;
+  volatile uint64_t *chip_memory = (volatile uint64_t *)hardware_address;
+
+  printf("Kernel virtual address: 0x%lx\n", (uint64_t)&dcbaap[0]);
+  printf("Hardware sees address:  0x%lx\n", hardware_address);
+  printf("Value at hardware addr: 0x%lx\n", *chip_memory);
+
+  if (*chip_memory == 0x1122334455667788ULL) {
+    printf("✓ SUCCESS: 1:1 mapping confirmed!\n");
+  } else {
+    printf("✗ FAIL: Address translation issue!\n");
+  }
+
+  // Clean up
+  dcbaap[0] = 0;
+
+  printf("=== Test Complete ===\n\n");
+}
+
+// ============================================================================
 // STEP 1: RESET CONTROLLER (xHCI Spec 4.2.1)
 // ============================================================================
 void xhci_reset_controller(void) {
@@ -121,7 +163,7 @@ void xhci_setup_command_ring(void) {
 
   // Place Link TRB at the end that points back to start
   // This allows the ring to wrap around
-  struct XhciTRB *link_trb = &command_ring[255];
+  volatile struct XhciTRB *link_trb = &command_ring[255];
 
   link_trb->Parameter = (uint64_t)&command_ring[0];  // Points back to start
   link_trb->Status = 0;
@@ -244,20 +286,6 @@ void xhci_start_controller(void) {
 }
 
 // ============================================================================
-// DEBUG: Print status register bits
-// ============================================================================
-void xhci_print_status(void) {
-  uint32_t status = xhci_dev.op_regs->UsbSts;
-
-  printf("USBSTS bits:\n");
-  printf("  HCHalted (0): %d\n", (status >> 0) & 1);
-  printf("  HSE (2):      %d\n", (status >> 2) & 1);
-  printf("  HCE (12):     %d\n", (status >> 12) & 1);
-  printf("  CNR (11):     %d\n", (status >> 11) & 1);
-  printf("  Raw value: 0x%x\n", status);
-}
-
-// ============================================================================
 // STEP 6: SCAN PORTS FOR DEVICES
 // ============================================================================
 void xhci_scan_ports(void) {
@@ -309,31 +337,133 @@ void xhci_scan_ports(void) {
 }
 
 // ============================================================================
-// TEST: Verify address translation (optional, you already did this)
+// STEP 7: ENABLE SLOT (xHCI spec 4.3.2)
+// Sends an Enable Slot command and waits for the controller to assign a slot.
 // ============================================================================
-void xhci_test_dma_identity(void) {
-  printf("=== DMA Address Translation Test ===\n");
+void xhci_enable_slot(uint32_t port) {
+  printf("=== STEP 7: Enable Slot (port %d) ===\n", port + 1);
 
-  dcbaap[0] = 0x1122334455667788ULL;
-  xhci_dev.op_regs->Dcbaap = (uint64_t)&dcbaap[0];
+  xhci_send_command(TRB_TYPE_ENABLE_SLOT, 0);
 
-  uint64_t hardware_address = xhci_dev.op_regs->Dcbaap;
-  volatile uint64_t *chip_memory = (volatile uint64_t *)hardware_address;
-
-  printf("Kernel virtual address: 0x%lx\n", (uint64_t)&dcbaap[0]);
-  printf("Hardware sees address:  0x%lx\n", hardware_address);
-  printf("Value at hardware addr: 0x%lx\n", *chip_memory);
-
-  if (*chip_memory == 0x1122334455667788ULL) {
-    printf("✓ SUCCESS: 1:1 mapping confirmed!\n");
-  } else {
-    printf("✗ FAIL: Address translation issue!\n");
+  uint32_t slot_id = xhci_poll_event_ring();
+  if (slot_id == 0) {
+    printf("ERROR: Enable Slot failed on port %d\n", port + 1);
+    return;
   }
 
-  // Clean up
-  dcbaap[0] = 0;
+  printf("Port %d -> slot %d assigned\n", port + 1, slot_id);
+  printf("=== STEP 7: COMPLETE ===\n\n");
 
-  printf("=== Test Complete ===\n\n");
+  xhci_address_device(slot_id, port);
+}
+
+// ============================================================================
+// STEP 8: ADDRESS DEVICE (xHCI spec 4.3.3 / 4.6.5)
+// Builds Input Context with Slot + EP0, sets DCBAAP[slot], sends
+// Address Device command (BSR=0 → controller issues USB SET_ADDRESS).
+// ============================================================================
+void xhci_address_device(uint32_t slot_id, uint32_t port) {
+  printf("=== STEP 8: Address Device (slot %d, port %d) ===\n", slot_id, port + 1);
+
+  // Read port speed from PORTSC bits [13:10]
+  uint32_t portsc = xhci_dev.op_regs->PortRegisterSet[port].PortSc;
+  uint8_t  speed  = (portsc >> 10) & 0x0F;
+  dev_speed = speed;
+  dev_port  = port;
+  printf("Speed code: %d\n", speed);
+
+  // EP0 max packet size for initial enumeration (xHCI spec 4.8.2.1)
+  // Speed: 1=Full, 2=Low, 3=High, 4=SuperSpeed
+  uint16_t mps;
+  switch (speed) {
+    case 3:  mps = 64;  break;  // High Speed
+    case 4:  mps = 512; break;  // SuperSpeed Gen1x1
+    case 2:  mps = 8;   break;  // Low Speed
+    default: mps = 8;   break;  // Full Speed (safe default for enumeration)
+  }
+  printf("EP0 max packet size: %d\n", mps);
+
+  // === EP0 Transfer Ring ===
+  memset((void *)ep0_ring, 0, sizeof(ep0_ring));
+  volatile struct XhciTRB *link = &ep0_ring[255];
+  link->Parameter = (uint64_t)&ep0_ring[0];
+  link->Status    = 0;
+  link->Control   = (TRB_TYPE_LINK << 10) | (1 << 1) | 1;
+  ep0_enqueue = 0;
+  ep0_cycle   = 1;
+
+  // === Input Context ===
+  memset((void *)&input_ctx, 0, sizeof(input_ctx));
+
+  // Input Control Context: A0 (slot) + A1 (EP0)
+  input_ctx.ctrl.add_flags = (1U << 0) | (1U << 1);
+
+  // Slot Context dw0: Context Entries=1, Speed, Route String=0
+  input_ctx.slot.dw0 = ((uint32_t)speed << 20) | (1U << 27);
+  // Slot Context dw1: Root Hub Port Number (1-indexed)
+  input_ctx.slot.dw1 = (uint32_t)(port + 1) << 16;
+
+  // EP0 Endpoint Context
+  // dw1: CErr=3, EP Type=Control Bidirectional(4), Max Packet Size
+  input_ctx.ep0.dw1 = (3U << 1) | (EP_TYPE_CONTROL_BIDIR << 3) | ((uint32_t)mps << 16);
+  // dw2/dw3: TR Dequeue Pointer | DCS=1
+  uint64_t ep0_addr = (uint64_t)&ep0_ring[0];
+  input_ctx.ep0.dw2 = (uint32_t)(ep0_addr & ~0xFULL) | 1;
+  input_ctx.ep0.dw3 = (uint32_t)(ep0_addr >> 32);
+  // dw4: Average TRB Length = 8 (standard for control endpoints)
+  input_ctx.ep0.dw4 = 8;
+
+  printf("Input Context:  0x%lx\n", (uint64_t)&input_ctx);
+  printf("Device Context: 0x%lx\n", (uint64_t)&device_ctx);
+
+  // === Point DCBAAP[slot_id] at the output Device Context ===
+  dcbaap[slot_id] = (uint64_t)&device_ctx;
+
+  // === Address Device TRB ===
+  // Parameter = Input Context pointer (16-byte aligned, page-aligned here)
+  // Control:  TRB Type[15:10]=11 | BSR[9]=0 | Slot ID[31:24] | Cycle[0]
+  volatile struct XhciTRB *trb = &command_ring[command_ring_enqueue];
+  trb->Parameter = (uint64_t)&input_ctx;
+  trb->Status    = 0;
+  trb->Control   = (TRB_TYPE_ADDRESS_DEVICE << 10)
+                 | ((uint32_t)slot_id << 24)
+                 | command_ring_cycle;
+
+  command_ring_enqueue++;
+  if (command_ring_enqueue == 255) {
+    command_ring[255].Control = (TRB_TYPE_LINK << 10) | (1 << 1) | command_ring_cycle;
+    command_ring_cycle ^= 1;
+    command_ring_enqueue = 0;
+  }
+  xhci_dev.doorbell_regs[0] = 0;
+
+  uint32_t result = xhci_poll_event_ring();
+  if (result == 0) {
+    printf("ERROR: Address Device failed on slot %d\n", slot_id);
+    return;
+  }
+
+  printf("Slot %d is now in Addressed state.\n", slot_id);
+  printf("=== STEP 8: COMPLETE ===\n\n");
+
+  xhci_get_descriptor(slot_id, USB_DESC_TYPE_DEVICE, 18);
+
+  // Step 10: if reported EP0 MPS differs from the speed-based default, update it
+  uint8_t reported_mps = descriptor_buffer[7];
+  if (reported_mps != mps) {
+    xhci_evaluate_context(slot_id, reported_mps);
+  } else {
+    printf("=== STEP 10: EP0 MPS confirmed (%d), no update needed ===\n\n", mps);
+  }
+
+  xhci_get_config_descriptor(slot_id);
+
+  // Step 12: SET_CONFIGURATION + Configure Endpoint
+  uint8_t config_val = descriptor_buffer[5];  // bConfigurationValue from Config Descriptor
+  xhci_set_configuration(slot_id, config_val);
+
+  xhci_get_hid_report_descriptor(slot_id);  // Step 13
+  xhci_poll_keyboard(slot_id);              // Step 14 — does not return
 }
 
 // ============================================================================
@@ -560,6 +690,43 @@ void xhci_get_descriptor(uint32_t slot_id, uint8_t desc_type, uint16_t length) {
 }
 
 // ============================================================================
+// STEP 10: Evaluate Context — update EP0 MPS if device reports a different
+// value than the speed-based default set during Address Device (xHCI 4.3.3).
+// ============================================================================
+void xhci_evaluate_context(uint32_t slot_id, uint8_t new_mps) {
+  printf("=== STEP 10: Evaluate Context (new EP0 MPS=%d) ===\n", new_mps);
+
+  // Reuse input_ctx: only A1 (EP0) is set; slot context is not evaluated
+  memset((void *)&input_ctx, 0, sizeof(input_ctx));
+  input_ctx.ctrl.drop_flags = 0;
+  input_ctx.ctrl.add_flags  = (1U << 1);  // A1 = EP0 only
+  input_ctx.ep0.dw1 = (3U << 1) | (EP_TYPE_CONTROL_BIDIR << 3) | ((uint32_t)new_mps << 16);
+
+  volatile struct XhciTRB *trb = &command_ring[command_ring_enqueue];
+  trb->Parameter = (uint64_t)&input_ctx;
+  trb->Status    = 0;
+  trb->Control   = (TRB_TYPE_EVALUATE_CONTEXT << 10)
+                 | ((uint32_t)slot_id << 24)
+                 | command_ring_cycle;
+
+  command_ring_enqueue++;
+  if (command_ring_enqueue == 255) {
+    command_ring[255].Control = (TRB_TYPE_LINK << 10) | (1 << 1) | command_ring_cycle;
+    command_ring_cycle ^= 1;
+    command_ring_enqueue = 0;
+  }
+  xhci_dev.doorbell_regs[0] = 0;
+
+  if (!xhci_poll_event_ring()) {
+    printf("ERROR: Evaluate Context failed\n");
+    return;
+  }
+
+  printf("EP0 MPS updated to %d\n", new_mps);
+  printf("=== STEP 10: COMPLETE ===\n\n");
+}
+
+// ============================================================================
 // STEP 11: GET_DESCRIPTOR (Configuration) — two-phase fetch:
 //   Phase 1: request 9 bytes to read wTotalLength
 //   Phase 2: request wTotalLength bytes for the full descriptor tree
@@ -771,6 +938,50 @@ void xhci_set_configuration(uint32_t slot_id, uint8_t config_val) {
 }
 
 // ============================================================================
+// STEP 13: GET_DESCRIPTOR HID Report Descriptor (USB HID spec 7.1.1)
+// bmRequestType=0x81 (D-to-H, Standard, Interface), bRequest=0x06,
+// wValue=0x2200 (type=HID Report, index=0), wIndex=0, wLength=hid_report_len
+// ============================================================================
+void xhci_get_hid_report_descriptor(uint32_t slot_id) {
+  printf("=== STEP 13: GET_DESCRIPTOR HID Report (len=%d) ===\n", hid_report_len);
+
+  if (hid_report_len == 0) {
+    printf("ERROR: hid_report_len not set (Step 11 may have failed)\n");
+    return;
+  }
+
+  uint16_t req_len = (hid_report_len > 256) ? 256 : hid_report_len;
+  for (uint32_t i = 0; i < 256; i++) descriptor_buffer[i] = 0;
+
+  // bmRequestType=0x81: D-to-H, Standard, Interface recipient
+  // wValue high=0x22 (HID Report Descriptor type), wIndex=0 (interface 0)
+  uint64_t setup = (uint64_t)0x81
+                 | ((uint64_t)0x06 << 8)
+                 | ((uint64_t)USB_DESC_TYPE_HID_REPORT << 24)
+                 | ((uint64_t)req_len << 48);
+
+  if (!ep0_control_in(slot_id, setup, descriptor_buffer, req_len)) {
+    printf("ERROR: GET_DESCRIPTOR HID Report failed\n");
+    return;
+  }
+
+  // Print raw descriptor bytes, 16 per line
+  static const char hex_ch[] = "0123456789abcdef";
+  printf("HID Report Descriptor (%d bytes):\n", req_len);
+  for (uint16_t i = 0; i < req_len; i++) {
+    uint8_t b = descriptor_buffer[i];
+    char    hi = hex_ch[(b >> 4) & 0xF];
+    char    lo = hex_ch[b & 0xF];
+    char    s[4] = {hi, lo, ' ', '\0'};
+    printf("%s", s);
+    if ((i + 1) % 16 == 0) printf("\n");
+  }
+  if (req_len % 16 != 0) printf("\n");
+
+  printf("=== STEP 13: COMPLETE ===\n\n");
+}
+
+// ============================================================================
 // STEP 14: Interrupt IN keyboard polling (xHCI spec 4.11.3)
 // Queues Normal TRBs on ep1in_ring, rings EP1 IN doorbell, and decodes
 // incoming 8-byte HID Boot Protocol reports into ASCII characters.
@@ -877,216 +1088,7 @@ void xhci_poll_keyboard(uint32_t slot_id) {
   }
 }
 
-// ============================================================================
-// STEP 13: GET_DESCRIPTOR HID Report Descriptor (USB HID spec 7.1.1)
-// bmRequestType=0x81 (D-to-H, Standard, Interface), bRequest=0x06,
-// wValue=0x2200 (type=HID Report, index=0), wIndex=0, wLength=hid_report_len
-// ============================================================================
-void xhci_get_hid_report_descriptor(uint32_t slot_id) {
-  printf("=== STEP 13: GET_DESCRIPTOR HID Report (len=%d) ===\n", hid_report_len);
 
-  if (hid_report_len == 0) {
-    printf("ERROR: hid_report_len not set (Step 11 may have failed)\n");
-    return;
-  }
-
-  uint16_t req_len = (hid_report_len > 256) ? 256 : hid_report_len;
-  for (uint32_t i = 0; i < 256; i++) descriptor_buffer[i] = 0;
-
-  // bmRequestType=0x81: D-to-H, Standard, Interface recipient
-  // wValue high=0x22 (HID Report Descriptor type), wIndex=0 (interface 0)
-  uint64_t setup = (uint64_t)0x81
-                 | ((uint64_t)0x06 << 8)
-                 | ((uint64_t)USB_DESC_TYPE_HID_REPORT << 24)
-                 | ((uint64_t)req_len << 48);
-
-  if (!ep0_control_in(slot_id, setup, descriptor_buffer, req_len)) {
-    printf("ERROR: GET_DESCRIPTOR HID Report failed\n");
-    return;
-  }
-
-  // Print raw descriptor bytes, 16 per line
-  static const char hex_ch[] = "0123456789abcdef";
-  printf("HID Report Descriptor (%d bytes):\n", req_len);
-  for (uint16_t i = 0; i < req_len; i++) {
-    uint8_t b = descriptor_buffer[i];
-    char    hi = hex_ch[(b >> 4) & 0xF];
-    char    lo = hex_ch[b & 0xF];
-    char    s[4] = {hi, lo, ' ', '\0'};
-    printf("%s", s);
-    if ((i + 1) % 16 == 0) printf("\n");
-  }
-  if (req_len % 16 != 0) printf("\n");
-
-  printf("=== STEP 13: COMPLETE ===\n\n");
-}
-
-// ============================================================================
-// STEP 10: Evaluate Context — update EP0 MPS if device reports a different
-// value than the speed-based default set during Address Device (xHCI 4.3.3).
-// ============================================================================
-void xhci_evaluate_context(uint32_t slot_id, uint8_t new_mps) {
-  printf("=== STEP 10: Evaluate Context (new EP0 MPS=%d) ===\n", new_mps);
-
-  // Reuse input_ctx: only A1 (EP0) is set; slot context is not evaluated
-  memset((void *)&input_ctx, 0, sizeof(input_ctx));
-  input_ctx.ctrl.drop_flags = 0;
-  input_ctx.ctrl.add_flags  = (1U << 1);  // A1 = EP0 only
-  input_ctx.ep0.dw1 = (3U << 1) | (EP_TYPE_CONTROL_BIDIR << 3) | ((uint32_t)new_mps << 16);
-
-  volatile struct XhciTRB *trb = &command_ring[command_ring_enqueue];
-  trb->Parameter = (uint64_t)&input_ctx;
-  trb->Status    = 0;
-  trb->Control   = (TRB_TYPE_EVALUATE_CONTEXT << 10)
-                 | ((uint32_t)slot_id << 24)
-                 | command_ring_cycle;
-
-  command_ring_enqueue++;
-  if (command_ring_enqueue == 255) {
-    command_ring[255].Control = (TRB_TYPE_LINK << 10) | (1 << 1) | command_ring_cycle;
-    command_ring_cycle ^= 1;
-    command_ring_enqueue = 0;
-  }
-  xhci_dev.doorbell_regs[0] = 0;
-
-  if (!xhci_poll_event_ring()) {
-    printf("ERROR: Evaluate Context failed\n");
-    return;
-  }
-
-  printf("EP0 MPS updated to %d\n", new_mps);
-  printf("=== STEP 10: COMPLETE ===\n\n");
-}
-
-// ============================================================================
-// STEP 7: ENABLE SLOT (xHCI spec 4.3.2)
-// Sends an Enable Slot command and waits for the controller to assign a slot.
-// ============================================================================
-void xhci_enable_slot(uint32_t port) {
-  printf("=== STEP 7: Enable Slot (port %d) ===\n", port + 1);
-
-  xhci_send_command(TRB_TYPE_ENABLE_SLOT, 0);
-
-  uint32_t slot_id = xhci_poll_event_ring();
-  if (slot_id == 0) {
-    printf("ERROR: Enable Slot failed on port %d\n", port + 1);
-    return;
-  }
-
-  printf("Port %d -> slot %d assigned\n", port + 1, slot_id);
-  printf("=== STEP 7: COMPLETE ===\n\n");
-
-  xhci_address_device(slot_id, port);
-}
-
-// ============================================================================
-// STEP 8: ADDRESS DEVICE (xHCI spec 4.3.3 / 4.6.5)
-// Builds Input Context with Slot + EP0, sets DCBAAP[slot], sends
-// Address Device command (BSR=0 → controller issues USB SET_ADDRESS).
-// ============================================================================
-void xhci_address_device(uint32_t slot_id, uint32_t port) {
-  printf("=== STEP 8: Address Device (slot %d, port %d) ===\n", slot_id, port + 1);
-
-  // Read port speed from PORTSC bits [13:10]
-  uint32_t portsc = xhci_dev.op_regs->PortRegisterSet[port].PortSc;
-  uint8_t  speed  = (portsc >> 10) & 0x0F;
-  dev_speed = speed;
-  dev_port  = port;
-  printf("Speed code: %d\n", speed);
-
-  // EP0 max packet size for initial enumeration (xHCI spec 4.8.2.1)
-  // Speed: 1=Full, 2=Low, 3=High, 4=SuperSpeed
-  uint16_t mps;
-  switch (speed) {
-    case 3:  mps = 64;  break;  // High Speed
-    case 4:  mps = 512; break;  // SuperSpeed Gen1x1
-    case 2:  mps = 8;   break;  // Low Speed
-    default: mps = 8;   break;  // Full Speed (safe default for enumeration)
-  }
-  printf("EP0 max packet size: %d\n", mps);
-
-  // === EP0 Transfer Ring ===
-  memset((void *)ep0_ring, 0, sizeof(ep0_ring));
-  volatile struct XhciTRB *link = &ep0_ring[255];
-  link->Parameter = (uint64_t)&ep0_ring[0];
-  link->Status    = 0;
-  link->Control   = (TRB_TYPE_LINK << 10) | (1 << 1) | 1;
-  ep0_enqueue = 0;
-  ep0_cycle   = 1;
-
-  // === Input Context ===
-  memset((void *)&input_ctx, 0, sizeof(input_ctx));
-
-  // Input Control Context: A0 (slot) + A1 (EP0)
-  input_ctx.ctrl.add_flags = (1U << 0) | (1U << 1);
-
-  // Slot Context dw0: Context Entries=1, Speed, Route String=0
-  input_ctx.slot.dw0 = ((uint32_t)speed << 20) | (1U << 27);
-  // Slot Context dw1: Root Hub Port Number (1-indexed)
-  input_ctx.slot.dw1 = (uint32_t)(port + 1) << 16;
-
-  // EP0 Endpoint Context
-  // dw1: CErr=3, EP Type=Control Bidirectional(4), Max Packet Size
-  input_ctx.ep0.dw1 = (3U << 1) | (EP_TYPE_CONTROL_BIDIR << 3) | ((uint32_t)mps << 16);
-  // dw2/dw3: TR Dequeue Pointer | DCS=1
-  uint64_t ep0_addr = (uint64_t)&ep0_ring[0];
-  input_ctx.ep0.dw2 = (uint32_t)(ep0_addr & ~0xFULL) | 1;
-  input_ctx.ep0.dw3 = (uint32_t)(ep0_addr >> 32);
-  // dw4: Average TRB Length = 8 (standard for control endpoints)
-  input_ctx.ep0.dw4 = 8;
-
-  printf("Input Context:  0x%lx\n", (uint64_t)&input_ctx);
-  printf("Device Context: 0x%lx\n", (uint64_t)&device_ctx);
-
-  // === Point DCBAAP[slot_id] at the output Device Context ===
-  dcbaap[slot_id] = (uint64_t)&device_ctx;
-
-  // === Address Device TRB ===
-  // Parameter = Input Context pointer (16-byte aligned, page-aligned here)
-  // Control:  TRB Type[15:10]=11 | BSR[9]=0 | Slot ID[31:24] | Cycle[0]
-  volatile struct XhciTRB *trb = &command_ring[command_ring_enqueue];
-  trb->Parameter = (uint64_t)&input_ctx;
-  trb->Status    = 0;
-  trb->Control   = (TRB_TYPE_ADDRESS_DEVICE << 10)
-                 | ((uint32_t)slot_id << 24)
-                 | command_ring_cycle;
-
-  command_ring_enqueue++;
-  if (command_ring_enqueue == 255) {
-    command_ring[255].Control = (TRB_TYPE_LINK << 10) | (1 << 1) | command_ring_cycle;
-    command_ring_cycle ^= 1;
-    command_ring_enqueue = 0;
-  }
-  xhci_dev.doorbell_regs[0] = 0;
-
-  uint32_t result = xhci_poll_event_ring();
-  if (result == 0) {
-    printf("ERROR: Address Device failed on slot %d\n", slot_id);
-    return;
-  }
-
-  printf("Slot %d is now in Addressed state.\n", slot_id);
-  printf("=== STEP 8: COMPLETE ===\n\n");
-
-  xhci_get_descriptor(slot_id, USB_DESC_TYPE_DEVICE, 18);
-
-  // Step 10: if reported EP0 MPS differs from the speed-based default, update it
-  uint8_t reported_mps = descriptor_buffer[7];
-  if (reported_mps != mps) {
-    xhci_evaluate_context(slot_id, reported_mps);
-  } else {
-    printf("=== STEP 10: EP0 MPS confirmed (%d), no update needed ===\n\n", mps);
-  }
-
-  xhci_get_config_descriptor(slot_id);
-
-  // Step 12: SET_CONFIGURATION + Configure Endpoint
-  uint8_t config_val = descriptor_buffer[5];  // bConfigurationValue from Config Descriptor
-  xhci_set_configuration(slot_id, config_val);
-
-  xhci_get_hid_report_descriptor(slot_id);  // Step 13
-  xhci_poll_keyboard(slot_id);              // Step 14 — does not return
-}
 
 // ============================================================================
 // MAIN INITIALIZATION ENTRY POINT

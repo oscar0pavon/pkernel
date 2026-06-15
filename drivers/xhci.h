@@ -8,6 +8,13 @@
 #define MY_USB_ID 0x7a60
 #define PCI_INTERFACE_XHCI 0x30
 
+typedef struct XhciInterrupterRegs XhciInterrupterRegs;
+typedef struct XhciRuntimeRegs XhciRuntimeRegs;
+typedef struct EventRingSegmentEntry EventRingSegmentEntry;
+typedef struct XhciCapabilityRegs XhciCapabilityRegs;
+typedef struct XhciOperationalRegs XhciOperationalRegs;
+
+// Transfer Request Block (TRB)
 // TRB Types (xHCI spec Table 6-91)
 #define TRB_TYPE_NORMAL                   1
 #define TRB_TYPE_SETUP_STAGE              2
@@ -46,7 +53,6 @@ struct XhciCapabilityRegs {
   uint32_t HccParams2;
 } __attribute__((packed));
 
-typedef struct XhciCapabilityRegs XhciCapabilityRegs;
 
 struct XhciOperationalRegs {
   volatile uint32_t UsbCmd;
@@ -66,7 +72,6 @@ struct XhciOperationalRegs {
   } PortRegisterSet[256];
 } __attribute__((packed));
 
-typedef struct XhciOperationalRegs XhciOperationalRegs;
 
 // ============================================================================
 // DATA STRUCTURE DEFINITIONS
@@ -104,7 +109,6 @@ struct XhciRuntimeRegs {
   struct XhciInterrupterRegs Interrupter[1024];
 } __attribute__((packed));
 
-typedef struct XhciRuntimeRegs XhciRuntimeRegs;
 
 struct EventRingSegmentEntry {
   uint64_t RingSegmentBaseAddress;
@@ -112,7 +116,7 @@ struct EventRingSegmentEntry {
   uint32_t Reserved;
 } __attribute__((packed));
 
-typedef struct EventRingSegmentEntry EventRingSegmentEntry;
+
 
 // ============================================================================
 // DEVICE CONTEXT STRUCTURES (xHCI spec 6.2)
@@ -178,6 +182,7 @@ typedef struct XHCIDevice {
   volatile struct XhciInterrupterRegs *int_0_regs;
   volatile uint32_t *doorbell_regs;  // base_mmio + Dboff; [0] = command ring
 } XHCIDevice;
+
 
 extern XHCIDevice xhci_dev;
 
