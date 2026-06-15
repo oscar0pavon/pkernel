@@ -35,6 +35,8 @@ struct XhciCapabilityRegs {
   uint32_t HccParams2; // Offset 0x1C: Capability Parameters 2
 } __attribute__((packed));
 
+typedef struct XhciCapabilityRegs XhciCapabilityRegs;
+
 // Host Controller Operational Registers (Read/Write)
 // These control the actual state of the USB system
 struct XhciOperationalRegs {
@@ -67,6 +69,8 @@ struct XhciOperationalRegs {
   } PortRegisterSet[256]; // Maximum potential ports supported by xHCI
 
 } __attribute__((packed));
+
+typedef struct XhciOperationalRegs XhciOperationalRegs;
 
 struct XhciTRB {
   uint64_t Parameter; // Usually a physical RAM pointer, or 0 for basic commands

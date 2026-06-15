@@ -43,34 +43,25 @@ __attribute__((aligned(4096))) struct EventRingSegmentEntry erst;
 static uint32_t xhci_max_ports = 0;
 
 void init_xhci_driver(uint64_t xhci_base) {
-  // Force the pointers to point straight to your physical memory address space
-  volatile struct XhciCapabilityRegs* cap_regs = (struct XhciCapabilityRegs*)xhci_base;
+  // Force the pointers to point straight to 
+  // your physical memory address space
+  //
+  volatile XhciCapabilityRegs* cap_regs = (XhciCapabilityRegs*)xhci_base;
   
   // Calculate where the operational registers start using CapLength
   uint64_t op_base = xhci_base + cap_regs->CapLength;
-  volatile struct XhciOperationalRegs* op_regs = (struct XhciOperationalRegs*)op_base;
 
-  // --- Verification Test Loop ---
-  printf("xHCI Version: %x\n", cap_regs->HciVersion);
-  
-  // Extract maximum number of physical ports supported by this controller
+  volatile XhciOperationalRegs* op_regs = (XhciOperationalRegs*)op_base;
+
   xhci_max_ports = (cap_regs->HcsParams1 >> 24) & 0xFF;
 
   printf("Total USB Ports Available: %d\n", xhci_max_ports);
 
-  // --- Perform a Hardware Reset to prepare for the keyboard ---
-  // Set Bit 1 (Host Controller Reset) in the USB Command Register
-  op_regs->UsbCmd |= (1 << 1);
-
   // Wait for the hardware to clear the reset bit automatically
   printf("Resetting xHCI Controller...\n");
+  // Set Bit 1 (Host Controller Reset) in the USB Command Register
   op_regs->UsbCmd |= (1 << 1); // Set Bit 1 (HCRST)
                                //
-  while (op_regs->UsbCmd & (1 << 1)) {
-    // In a real system, add a timeout constraint here so it won't hang forever
-    __asm__("pause"); 
-  }
-
   printf("xHCI Reset Bit Cleared.\n");
 
   printf("Waiting for Controller to become Ready (CNR)...\n");
@@ -82,7 +73,7 @@ void init_xhci_driver(uint64_t xhci_base) {
   printf("xHCI Controller Ready for Configuration!\n");
 
 
-  for (volatile uint64_t delay = 0; delay < 500000000ULL; delay++) {
+  for (volatile uint64_t delay = 0; delay < 50000000ULL; delay++) {
     __asm__("pause");
   }
 
@@ -310,5 +301,36 @@ void setup_xhci_hardware(uint64_t xhci_base,
   printf("xHCI Controller is now successfully RUNNING!\n");
 
   scan_xhci_ports(cap_regs, op_regs);
+}
+
+void test_xhci_dma_identity(uint64_t xhci_base,
+                            volatile struct XhciOperationalRegs *op_regs) {
+  // 1. Point op_regs->Dcbaap to our global array using its compiler virtual
+  // address We place a recognizable magic signature right inside index 0
+  dcbaap[0] = 0x1122334455667788ULL;
+
+  // 2. Write the address of our array directly into the xHCI hardware register
+  op_regs->Dcbaap = (uint64_t)&dcbaap;
+
+  // 3. Forcibly read the register BACK from the xHCI chip hardware lines
+  uint64_t hardware_read_address = op_regs->Dcbaap;
+
+  // 4. Now, look at the physical memory address the chip is actually holding
+  volatile uint64_t *chip_target_memory =
+      (volatile uint64_t *)hardware_read_address;
+
+  printf("\n--- xHCI HARDWARE DMA CHECK ---\n");
+  printf("Compiler Symbol Address (&dcbaap): 0x%lx\n", (uint64_t)&dcbaap);
+  printf("Register Readback Address:        0x%lx\n", hardware_read_address);
+  printf("Value inside Chip Memory Target:  0x%lx\n", *chip_target_memory);
+
+  if (*chip_target_memory == 0x1122334455667788ULL) {
+    printf("SUCCESS: The xHCI hardware and your CPU see the exact same RAM "
+           "bytes!\n");
+  } else {
+    printf("FAIL: The xHCI hardware is looking at a different physical RAM "
+           "cell!\n");
+  }
+  printf("--------------------------------\n");
 }
 

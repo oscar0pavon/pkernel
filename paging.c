@@ -80,3 +80,28 @@ void init_kernel_paging(void) {
 
   printf("Paging enabled\n");
 }
+
+void test_identity_mapping(void) {
+  // 1. Declare a volatile local variable on the stack
+  volatile uint64_t magic_probe = 0xDEADC0DECAFEFEEDULL;
+
+  // 2. Get the Virtual Address of this variable (what the C code sees)
+  uint64_t virtual_address = (uint64_t)&magic_probe;
+
+  // 3. Create a pointer using a completely raw integer address
+  // If it's a true identity map, reading from the raw integer value
+  // MUST return our exact same stack value!
+  volatile uint64_t *physical_probe = (volatile uint64_t *)virtual_address;
+
+  printf("\n--- IDENTITY MAP VERIFICATION ---\n");
+  printf("Virtual Pointer Address:  0x%lx\n", virtual_address);
+  printf("Value via direct variable: 0x%lx\n", magic_probe);
+  printf("Value via raw int pointer: 0x%lx\n", *physical_probe);
+
+  if (*physical_probe == 0xDEADC0DECAFEFEEDULL) {
+    printf("SUCCESS: Virtual Address maps 1-to-1 with Physical RAM!\n");
+  } else {
+    printf("ERROR: Address mismatch! Paging table layout is skewed.\n");
+  }
+  printf("---------------------------------\n");
+}

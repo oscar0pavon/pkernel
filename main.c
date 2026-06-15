@@ -38,10 +38,11 @@ void main(BootInfo* boot_info){
   init_gdt();
   init_idt();
 
-  setup_memory(boot_info);
+  //setup_memory(boot_info);
 
   init_kernel_paging();
 
+  //test_identity_mapping();
 
 
   printf("XSDT address: %x\n",xsdt_address);
