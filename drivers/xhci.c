@@ -2,6 +2,13 @@
 #include "../console.h"
 #include <stdint.h>
 
+#define PCI_REG_BAR0 0x10
+#define PCI_REG_BAR1 0x14
+
+#define HCIVERSION 0x02
+#define RTSOFF 0x18
+
+XHCIDevice xhci_device;
 
 uint64_t xhci_base_mmio = 0;
 
@@ -18,8 +25,6 @@ uint32_t current_cycle_state = 1; // xHCI rings MUST start with Cycle State = 1
 uint32_t event_ring_index = 0;
 uint32_t event_ring_cycle = 1; // Expected initial cycle bit written by hardware
 
-#define HCIVERSION 0x02
-#define RTSOFF 0x18
 
 // Allocate a 4KB chunk of raw physical memory aligned to a 64-byte boundary
 // This will hold your primary command tracking loops
@@ -34,8 +39,6 @@ __attribute__((aligned(4096))) volatile uint32_t event_ring[256 * 4] = {0};
 __attribute__((aligned(4096))) struct EventRingSegmentEntry erst;
 
 
-#define PCI_REG_BAR0 0x10
-#define PCI_REG_BAR1 0x14
 
 static uint32_t xhci_max_ports = 0;
 
@@ -61,6 +64,8 @@ void init_xhci_driver(uint64_t xhci_base) {
 
   // Wait for the hardware to clear the reset bit automatically
   printf("Resetting xHCI Controller...\n");
+  op_regs->UsbCmd |= (1 << 1); // Set Bit 1 (HCRST)
+                               //
   while (op_regs->UsbCmd & (1 << 1)) {
     // In a real system, add a timeout constraint here so it won't hang forever
     __asm__("pause"); 
@@ -76,105 +81,78 @@ void init_xhci_driver(uint64_t xhci_base) {
 
   printf("xHCI Controller Ready for Configuration!\n");
 
-  op_regs->UsbSts = 0xFFFFFFFF;
 
-  // 4. Give the physical clock lines a brief moment to settle down completely
-  for (volatile int delay = 0; delay < 10000000; delay++) {
+  for (volatile uint64_t delay = 0; delay < 500000000ULL; delay++) {
     __asm__("pause");
   }
+
+  xhci_device.pci_regs[1] |= (1 << 1) | (1 << 2);
+  
+  op_regs->UsbSts = 0xFFFFFFFF;
 
   printf("Running setup hardware\n");
 
   xhci_base_address = xhci_base;  
 
-  //setup_xhci_hardware(xhci_base, cap_regs, op_regs);
+  setup_xhci_hardware(xhci_base, cap_regs, op_regs);
   
 }
-
 void poll_xhci_event_ring(uint64_t xhci_base,
                           volatile struct XhciCapabilityRegs *cap_regs,
                           volatile struct XhciOperationalRegs* op_regs) {
-  // 1. Locate Interrupter 0 inside the Runtime Registers space
   uint64_t rt_base = xhci_base + cap_regs->Rtsoff;
   volatile struct XhciInterrupterRegs *int_0 =
       (volatile struct XhciInterrupterRegs *)(rt_base + 0x20);
 
-  // Cast our raw event ring buffer array to the structured event layout
-  volatile struct XhciEventTRB *ring =
-      (volatile struct XhciEventTRB *)&event_ring;
+  // CRITICAL FIX: Cast directly onto our physical event ring allocation space!
+  volatile struct XhciEventTRB *ring = (volatile struct XhciEventTRB *)0x2002000;
 
   printf("Waiting for xHCI Command Completion Event...\n");
-
   uint32_t diagnostic_timer = 0;
 
-  // 2. Poll the memory slot until the hardware writes the matching cycle bit
   while (1) {
     uint32_t control = ring[event_ring_index].Control;
     uint32_t hardware_cycle_bit = control & 0x01;
 
-    // If the hardware cycle bit matches our expected cycle state, an event is
-    // ready!
     if (hardware_cycle_bit == event_ring_cycle) {
-
-      // Extract the TRB Type (Bits 10-15)
       uint8_t trb_type = (control >> 10) & 0x3F;
 
       if (trb_type == TRB_TYPE_COMMAND_COMPLETION_EVENT) {
-        // Extract Completion Code (Bits 24-31 of Status). 1 means Success!
         uint8_t completion_code = (ring[event_ring_index].Status >> 24) & 0xFF;
-
-        // Extract the assigned Slot ID (Bits 24-31 of Control register)
         uint8_t assigned_slot_id = (control >> 24) & 0xFF;
 
         printf("--> Event Received!\n");
         printf("    Completion Code: %d (1 = Success)\n", completion_code);
         printf("    Assigned Slot ID for Keyboard: %d\n", assigned_slot_id);
 
-        // Keep track of this assigned_slot_id globally so your keyboard driver
-        // can use it later!
-
-        // 3. Update our local index tracker
         event_ring_index++;
-        if (event_ring_index >=
-            256) { // Matching your event_ring allocation size
+        if (event_ring_index >= 256) { 
           event_ring_index = 0;
-          event_ring_cycle =
-              !event_ring_cycle; // Invert expected cycle bit on wrap
+          event_ring_cycle = !event_ring_cycle; 
         }
 
-        // 4. CRITICAL MANDATORY STEP: Update the ERDP register in the hardware
-        // Calculate the physical memory address of the next processed slot
         uint64_t next_dequeue_pointer = (uint64_t)&ring[event_ring_index];
         next_dequeue_pointer &= 0xFFFFFFFFFFFFFFF0ULL;
 
-        // Bit 3 MUST be written as 1 to clear the Event Handler Busy flag (EHB)
         int_0->Erdp = next_dequeue_pointer | (1 << 3);
-
-        break; // Exit the poll loop successfully
+        break; 
       }
     }
 
-    // Diagnostic helper if the loop stays stuck
     diagnostic_timer++;
     if (diagnostic_timer > 80000000) {
       diagnostic_timer = 0;
       uint32_t status = op_regs->UsbSts;
       printf("Polling... Live USBSTS Register: 0x%x\n", status);
 
-      // Bit 2 is HSE (Host System Error)
-      if (status& (1 << 12)) {
-        printf("Hardware Halted (HCE). Raw control word at index: 0x%x\n",
-               control);
-      }
       if (status & (1 << 2))  printf("Host System Error (HSE)!\n");
       if (status & (1 << 12)) printf("Host Controller Error (HCE)!\n");
       if (status & (1 << 0))  printf("Controller Halted!\n");
-      // Freeze here so you can read the dump
     }
-
-    __asm__("pause"); // Prevent CPU overheating while waiting
+    __asm__("pause"); 
   }
 }
+
 
 volatile uint32_t *
 get_xhci_doorbell_reg(uint64_t xhci_base,
@@ -191,17 +169,15 @@ get_xhci_doorbell_reg(uint64_t xhci_base,
 void xhci_send_command(uint64_t xhci_base,
                        volatile struct XhciCapabilityRegs *cap_regs,
                        uint32_t trb_type) {
-  // CRITICAL FIX: Clean the command ring variable address to a physical
-  // coordinate
-  uint64_t cmd_ring_phys = ((uint64_t)(uintptr_t)&command_ring) & 0xFFFFFFFFULL;
-
+  // CRITICAL FIX: Target our active 32MB physical memory slot instead of the .bss reference!
+  uint64_t cmd_ring_phys = 0x2001000;
   struct XhciTRB *ring = (struct XhciTRB *)cmd_ring_phys;
 
-  // At ring initialization, place a Link TRB at index 255
-  ring[255].Parameter = cmd_ring_phys; // points back to start
+  // Enforce a stable Link TRB at the end of our 256-sized hardware tracking block
+  ring[255].Parameter = cmd_ring_phys; // Points back to index 0
   ring[255].Status = 0;
-  ring[255].Control =
-      (TRB_TYPE_LINK << 10) | (1 << 1) | current_cycle_state; // TC bit set
+  // Bit 1 = TC (Toggle Cycle) bit. This is mandatory for the controller to loop correctly.
+  ring[255].Control = (TRB_TYPE_LINK << 10) | (1 << 1) | current_cycle_state; 
 
   uint32_t control_bits = (trb_type << 10) | current_cycle_state;
 
@@ -209,20 +185,20 @@ void xhci_send_command(uint64_t xhci_base,
   ring[current_trb_index].Status = 0;
   ring[current_trb_index].Control = control_bits;
 
-  printf("Posting TRB Type %d to Command Ring index %d...\n", trb_type,
-         current_trb_index);
+  printf("Posting TRB Type %d to Command Ring index %d...\n", trb_type, current_trb_index);
 
   current_trb_index++;
-  if (current_trb_index >= 256) {
+  if (current_trb_index >= 255) { // Leave index 255 reserved for our Link TRB!
     current_trb_index = 0;
-    current_cycle_state ^= 1; // toggle cycle bit
+    current_cycle_state ^= 1; // Toggle tracking cycle bits on wrap pass
   }
 
   volatile uint32_t *db_0 = get_xhci_doorbell_reg(xhci_base, cap_regs, 0);
-  *db_0 = 0;
+  *db_0 = 0; // Target 0 = Command Ring execution line
 
   printf("Doorbell 0 rung successfully!\n");
 }
+
 
 void scan_xhci_ports(volatile struct XhciCapabilityRegs *cap_regs,
                      volatile struct XhciOperationalRegs *op_regs) {
@@ -265,71 +241,73 @@ void scan_xhci_ports(volatile struct XhciCapabilityRegs *cap_regs,
   }
 }
 
-
 void setup_xhci_hardware(uint64_t xhci_base, 
     volatile struct XhciCapabilityRegs* cap_regs, 
     volatile struct XhciOperationalRegs* op_regs) {
 
-  // 1. Calculate Runtime Registers position
-  volatile struct XhciRuntimeRegs *rt_regs =
-      (struct XhciRuntimeRegs *)(xhci_base + cap_regs->Rtsoff);
+  // 1. Assign explicit, absolute physical RAM spaces (Guaranteed Free via UEFI Map Type 7)
+  uint64_t my_dcbaap_phys       = 0x2000000; // 32 MB mark
+  uint64_t my_command_ring_phys = 0x2001000; // 32 MB + 4KB
+  uint64_t my_event_ring_phys   = 0x2002000; // 32 MB + 8KB
+  uint64_t my_erst_phys         = 0x2003000; // 32 MB + 12KB
 
-  volatile struct XhciInterrupterRegs* int_0 = &rt_regs->Interrupter[0];
+  // 2. Completely zero out this 16KB physical region to clear out old boot garbage
+  uint64_t* clear_ptr = (uint64_t*)my_dcbaap_phys;
+  for (int i = 0; i < (16384 / 8); i++) {
+      clear_ptr[i] = 0;
+  }
 
-  // 2. Clear the Controller Configuration (Stops all processing)
+  // 3. Clear configuration to reset internal hardware processing pipelines
   op_regs->Config = 0;
 
-  // Clear any existing error flags before configuring
-  op_regs->UsbSts = 0xFFFFFFFF;
+  // 4. Force clear any sticky hardware error status flags
+  op_regs->UsbSts = 0xFFFFFFFF; 
+
+  // 5. Write pure physical 64-bit addresses straight to the operational registers
+  op_regs->Dcbaap = my_dcbaap_phys;
+  op_regs->Crcr   = my_command_ring_phys | 1; // Assert Cycle bit 0 to 1
+
+  // 6. Populate the Event Ring Segment Table (ERST) inside memory using hardcoded offsets
+  *(volatile uint64_t*)(my_erst_phys + 0) = my_event_ring_phys;
+  *(volatile uint32_t*)(my_erst_phys + 8) = 256;
+  *(volatile uint32_t*)(my_erst_phys + 12) = 0;
 
   // =========================================================================
-  // CRITICAL FIX: Strip upper canonical bits to pass pure physical RAM targets!
+  // BARE-METAL BYPASS: MANUALLY COMPUTE THE RUNTIME INTERRUPTER REGISTERS
+  // This completely eliminates any compiler-inserted struct alignment padding!
   // =========================================================================
-  uint64_t dcbaap_phys  = ((uint64_t)(uintptr_t)&dcbaap);
-  uint64_t cmd_ring_phys = ((uint64_t)(uintptr_t)&command_ring);
-  uint64_t evt_ring_phys = ((uint64_t)(uintptr_t)&event_ring);
-  uint64_t erst_phys     = ((uint64_t)(uintptr_t)&erst);
+  uint64_t rt_base = xhci_base + cap_regs->Rtsoff;
+  uint64_t int0_base = rt_base + 0x20; // Interrupter 0 starts EXACTLY at Rtsoff + 0x20
+
+  volatile uint32_t* reg_iman   = (volatile uint32_t*)(int0_base + 0x00); // IMAN offset 0x00
+  volatile uint16_t* reg_erstsz = (volatile uint16_t*)(int0_base + 0x08); // ERSTSZ offset 0x08
+  volatile uint64_t* reg_erstba = (volatile uint64_t*)(int0_base + 0x0C); // ERSTBA offset 0x0C
+  volatile uint64_t* reg_erdp   = (volatile uint64_t*)(int0_base + 0x14); // ERDP offset 0x14
+
+  // 7. Hook our parameters into the interrupter registers using our raw pointers
+  *reg_erstsz = 1;               // 1 segment entry (16-bit store)
+  *reg_erstba = my_erst_phys;    // Absolute address of our populated table (64-bit store)
+  
+  // Clean the lowest 4 bits to satisfy strict 16-byte alignment rules
+  uint64_t erdp_val = my_event_ring_phys & 0xFFFFFFFFFFFFFFF0ULL;
+  *reg_erdp = erdp_val | (1 << 3); // Pre-clear the Event Handler Busy flag (EHB)
+
+  // 8. Turn off chip-level interrupt pins to stop unmapped routing faults
+  *reg_iman = (1 << 0); // Iman: Clear pending, keep Interrupt Enable at 0
   // =========================================================================
 
-  // 3. Set the absolute physical DCBAAP address pointer
-  op_regs->Dcbaap = dcbaap_phys;
-
-  // 4. Initialize and set the Command Ring Pointer (with cycle bit 0 = 1)
-  op_regs->Crcr = cmd_ring_phys | 1;
-
-  // 5. Configure the Event Ring Segment Table (ERST) memory data structures
-  erst.RingSegmentBaseAddress = evt_ring_phys;
-  erst.RingSegmentSize = 256; 
-  erst.Reserved = 0;
-
-  // 6. Hook our clean physical ERST address into Interrupter 0
-  int_0->Erstsz = 1;               
-  int_0->Erstba = erst_phys; 
-
-  // Mask out the lowest 4 bits to ensure the Event Ring Dequeue Pointer is 16-byte aligned
-  uint64_t erdp_val = evt_ring_phys & 0xFFFFFFFFFFFFFFF0ULL;
-  int_0->Erdp = erdp_val | (1 << 3); // Write 1 to bit 3 to clear Event Handler Busy (EHB)
-
-  // 7. Configure Interrupter Management (Iman) Register
-  // Clear status pending flags, keep Interrupt Enable (Bit 1) at 0!
-  int_0->Iman = (1 << 0); 
-
-  // Flush any lingering status tracks out of the operational registers
-  op_regs->UsbSts = 0xFFFFFFFF;
-
-  // 8. Turn on EXACTLY 1 slot to prevent the hardware from checking unallocated structures
-  uint32_t max_slots = cap_regs->HcsParams1 & 0xFF;
-  op_regs->Config = max_slots;
+  // Enable exactly 1 tracking slot for the keyboard instead of max_slots
+  op_regs->Config = 1; 
 
   // 9. START THE CONTROLLER!
   op_regs->UsbCmd |= (1 << 0);
 
-  // Wait until the HCHalted bit (Bit 0) in USB Status drops to 0
+  // Wait until the HCHalted bit (Bit 0) in USBSTS drops to 0
   while (op_regs->UsbSts & (1 << 0)) {
       __asm__("pause");
   }
-
-  printf("xHCI Controller is fully RUNNING and monitoring USB ports!\n");
+  
+  printf("xHCI Controller is now successfully RUNNING!\n");
 
   scan_xhci_ports(cap_regs, op_regs);
 }

@@ -103,6 +103,14 @@ struct EventRingSegmentEntry {
   uint32_t Reserved;
 } __attribute__((packed));
 
+typedef struct XHCIDevice{
+  volatile uint32_t *pci_regs;
+
+}XHCIDevice;
+
+extern XHCIDevice xhci_device;
+
+
 void setup_xhci_hardware(uint64_t xhci_base,
                          volatile struct XhciCapabilityRegs *cap_regs,
                          volatile struct XhciOperationalRegs *op_regs);

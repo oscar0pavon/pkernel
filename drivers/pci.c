@@ -41,11 +41,12 @@ void setup_pci() {
         if (prog_if == PCI_INTERFACE_XHCI) {
 
           printf("xHCI Device Found at Slot %d, Func %d!\n", dev, func);
+          xhci_device.pci_regs = pci_regs;
 
           // 1. MANDATORY: 
           // Enable Memory Space and Bus Mastering in Command Reg
           // (Offset 0x04)
-          pci_regs[1] |= PCI_CMD_MEMORY_SPACE | PCI_CMD_BUS_MASTER;
+          //pci_regs[1] |= PCI_CMD_MEMORY_SPACE | PCI_CMD_BUS_MASTER;
 
           // 2. Read BAR0 and BAR1 (Offsets 0x10 and 0x14 / Indices 4 and 5)
           uint32_t bar0 = pci_regs[4];
