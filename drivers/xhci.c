@@ -12,7 +12,9 @@
 aligned4k volatile uint64_t dcbaap[64] = {0};
 aligned4k volatile struct XhciTRB command_ring[256] = {0};
 aligned4k volatile struct XhciEventTRB event_ring[256] = {0};
-aligned4k volatile struct EventRingSegmentEntry erst = {0};
+// xHCI spec requires 64-byte alignment for ERST, not page alignment.
+// Using aligned4k caused erst to share the same 4K address as event_ring.
+__attribute__((aligned(64))) volatile struct EventRingSegmentEntry erst = {0};
 
 XHCIDevice xhci_dev = {0};
 
@@ -130,6 +132,8 @@ void xhci_setup_event_ring(void) {
   erst.RingSegmentSize = 256;
   erst.Reserved = 0;
 
+  printf("  &erst:       0x%lx\n", (uint64_t)&erst);
+  printf("  &event_ring: 0x%lx\n", (uint64_t)&event_ring[0]);
   printf("ERST Entry:\n");
   printf("  Base Address: 0x%lx\n", erst.RingSegmentBaseAddress);
   printf("  Ring Size: %d\n", erst.RingSegmentSize);
@@ -170,6 +174,18 @@ void xhci_start_controller(void) {
 
   xhci_dev.op_regs->Config = 1;  // Enable 1 slot
   printf("CONFIG set to 1 slot.\n");
+
+  // Check if the controller needs scratchpad buffers (xHCI spec 4.20)
+  // MaxScratchpadBufs = HcsParams2[31:27] (low 5 bits of 10-bit field)
+  uint32_t hcs2 = xhci_dev.cap_regs->HcsParams2;
+  uint32_t max_scratch = (hcs2 >> 27) & 0x1F;
+  printf("Max scratchpad bufs: %d\n", max_scratch);
+  if (max_scratch > 0) {
+    // dcbaap[0] must point to a scratchpad buffer array before RS=1.
+    // For now we halt — this controller requires scratchpad support.
+    printf("ERROR: Scratchpad buffers required but not implemented!\n");
+    return;
+  }
 
   // Set DCBAAP (Device Context Base Address Array Pointer)
   xhci_dev.op_regs->Dcbaap = (uint64_t)&dcbaap[0];
