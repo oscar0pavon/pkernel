@@ -21,8 +21,8 @@ aligned4k volatile struct XhciInputContext  input_ctx  = {0};
 aligned4k volatile struct XhciDeviceContext device_ctx = {0};
 aligned4k volatile struct XhciTRB           ep0_ring[256] = {0};
 
-// DMA receive buffer for USB descriptors
-aligned4k volatile uint8_t descriptor_buffer[64] = {0};
+// DMA receive buffer for USB descriptors (256 bytes covers any standard descriptor)
+aligned4k volatile uint8_t descriptor_buffer[256] = {0};
 
 XHCIDevice xhci_dev = {0};
 
@@ -393,6 +393,46 @@ uint32_t xhci_poll_event_ring(void) {
 }
 
 // ============================================================================
+// EP0 HELPER: Submit a Control IN transfer on EP0 (Setup + Data + Status).
+// Handles ep0_ring wrap at slot 255. Returns 1 on success, 0 on failure.
+// ============================================================================
+static uint32_t ep0_control_in(uint32_t slot_id, uint64_t setup,
+                                volatile uint8_t *buf, uint16_t length) {
+  // Setup Stage TRB: IDT=1 (immediate data), TRT=3 (IN data follows)
+  volatile struct XhciTRB *s = &ep0_ring[ep0_enqueue++];
+  s->Parameter = setup;
+  s->Status    = 8;
+  s->Control   = (TRB_TYPE_SETUP_STAGE << 10) | (3U << 16) | (1U << 6) | ep0_cycle;
+  if (ep0_enqueue >= 255) {
+    ep0_ring[255].Control = (TRB_TYPE_LINK << 10) | (1U << 1) | ep0_cycle;
+    ep0_cycle ^= 1; ep0_enqueue = 0;
+  }
+
+  // Data Stage TRB: DIR=1 (IN from device)
+  volatile struct XhciTRB *d = &ep0_ring[ep0_enqueue++];
+  d->Parameter = (uint64_t)buf;
+  d->Status    = length;
+  d->Control   = (TRB_TYPE_DATA_STAGE << 10) | (1U << 16) | ep0_cycle;
+  if (ep0_enqueue >= 255) {
+    ep0_ring[255].Control = (TRB_TYPE_LINK << 10) | (1U << 1) | ep0_cycle;
+    ep0_cycle ^= 1; ep0_enqueue = 0;
+  }
+
+  // Status Stage TRB: DIR=0 (OUT, opposite of IN data), IOC=1
+  volatile struct XhciTRB *t = &ep0_ring[ep0_enqueue++];
+  t->Parameter = 0;
+  t->Status    = 0;
+  t->Control   = (TRB_TYPE_STATUS_STAGE << 10) | (1U << 5) | ep0_cycle;
+  if (ep0_enqueue >= 255) {
+    ep0_ring[255].Control = (TRB_TYPE_LINK << 10) | (1U << 1) | ep0_cycle;
+    ep0_cycle ^= 1; ep0_enqueue = 0;
+  }
+
+  xhci_dev.doorbell_regs[slot_id] = 1;
+  return xhci_poll_transfer_event();
+}
+
+// ============================================================================
 // EVENT RING: Poll for a Transfer Event (TRB type 32) on EP0.
 // Returns 1 on Success (code 1) or Short Packet (code 13), 0 on error/timeout.
 // ============================================================================
@@ -500,6 +540,100 @@ void xhci_get_descriptor(uint32_t slot_id, uint8_t desc_type, uint16_t length) {
   printf("  bNumConfigurations: %d\n", bNumConfigurations);
 
   printf("=== STEP 9: COMPLETE ===\n\n");
+}
+
+// ============================================================================
+// STEP 11: GET_DESCRIPTOR (Configuration) — two-phase fetch:
+//   Phase 1: request 9 bytes to read wTotalLength
+//   Phase 2: request wTotalLength bytes for the full descriptor tree
+// Parses Config, Interface, HID, and Endpoint descriptors and prints them.
+// ============================================================================
+void xhci_get_config_descriptor(uint32_t slot_id) {
+  printf("=== STEP 11: GET_DESCRIPTOR Configuration ===\n");
+
+  // Phase 1: fetch the 9-byte Config Descriptor header to get wTotalLength
+  for (uint32_t i = 0; i < 256; i++) descriptor_buffer[i] = 0;
+
+  uint64_t setup9 = (uint64_t)0x80
+                  | ((uint64_t)0x06 << 8)
+                  | ((uint64_t)USB_DESC_TYPE_CONFIG << 24)
+                  | ((uint64_t)9 << 48);
+
+  if (!ep0_control_in(slot_id, setup9, descriptor_buffer, 9)) {
+    printf("ERROR: GET_DESCRIPTOR Config (9 bytes) failed\n");
+    return;
+  }
+
+  uint16_t total_length = (uint16_t)descriptor_buffer[2]
+                        | ((uint16_t)descriptor_buffer[3] << 8);
+  printf("wTotalLength = %d\n", total_length);
+
+  if (total_length < 9 || total_length > 255) {
+    printf("ERROR: Invalid wTotalLength %d\n", total_length);
+    return;
+  }
+
+  // Phase 2: fetch the full descriptor tree
+  for (uint32_t i = 0; i < 256; i++) descriptor_buffer[i] = 0;
+
+  uint64_t setup_full = (uint64_t)0x80
+                      | ((uint64_t)0x06 << 8)
+                      | ((uint64_t)USB_DESC_TYPE_CONFIG << 24)
+                      | ((uint64_t)total_length << 48);
+
+  if (!ep0_control_in(slot_id, setup_full, descriptor_buffer, total_length)) {
+    printf("ERROR: GET_DESCRIPTOR Config (full) failed\n");
+    return;
+  }
+
+  // Parse the descriptor tree starting with the Config Descriptor at offset 0
+  printf("Config Descriptor:\n");
+  printf("  bNumInterfaces:      %d\n", descriptor_buffer[4]);
+  printf("  bConfigurationValue: %d\n", descriptor_buffer[5]);
+  printf("  bmAttributes:        0x%x\n", descriptor_buffer[7]);
+  printf("  bMaxPower:           %dmA\n", descriptor_buffer[8] * 2);
+
+  // Walk all sub-descriptors
+  uint32_t offset = descriptor_buffer[0];  // skip Config Descriptor itself
+  while (offset + 1 < total_length) {
+    uint8_t bLength = descriptor_buffer[offset];
+    uint8_t bType   = descriptor_buffer[offset + 1];
+
+    if (bLength < 2 || offset + bLength > total_length) break;
+
+    if (bType == 0x04) {  // Interface Descriptor
+      printf("Interface Descriptor:\n");
+      printf("  bInterfaceNumber:   %d\n", descriptor_buffer[offset + 2]);
+      printf("  bNumEndpoints:      %d\n", descriptor_buffer[offset + 4]);
+      printf("  bInterfaceClass:    0x%x\n", descriptor_buffer[offset + 5]);
+      printf("  bInterfaceSubClass: 0x%x\n", descriptor_buffer[offset + 6]);
+      printf("  bInterfaceProtocol: 0x%x\n", descriptor_buffer[offset + 7]);
+    } else if (bType == 0x21) {  // HID Descriptor
+      uint16_t bcdHID    = (uint16_t)descriptor_buffer[offset + 2]
+                         | ((uint16_t)descriptor_buffer[offset + 3] << 8);
+      uint16_t rpt_len   = (uint16_t)descriptor_buffer[offset + 7]
+                         | ((uint16_t)descriptor_buffer[offset + 8] << 8);
+      printf("HID Descriptor:\n");
+      printf("  bcdHID:             0x%x\n", bcdHID);
+      printf("  bCountryCode:       %d\n",   descriptor_buffer[offset + 4]);
+      printf("  bNumDescriptors:    %d\n",   descriptor_buffer[offset + 5]);
+      printf("  wDescriptorLength:  %d\n",   rpt_len);
+    } else if (bType == 0x05) {  // Endpoint Descriptor
+      uint8_t  addr = descriptor_buffer[offset + 2];
+      uint16_t mps  = (uint16_t)descriptor_buffer[offset + 4]
+                    | ((uint16_t)descriptor_buffer[offset + 5] << 8);
+      printf("Endpoint Descriptor:\n");
+      printf("  bEndpointAddress:   0x%x (%s EP%d)\n",
+             addr, (addr & 0x80) ? "IN" : "OUT", addr & 0x0F);
+      printf("  bmAttributes:       0x%x\n", descriptor_buffer[offset + 3]);
+      printf("  wMaxPacketSize:     %d\n",   mps);
+      printf("  bInterval:          %d\n",   descriptor_buffer[offset + 6]);
+    }
+
+    offset += bLength;
+  }
+
+  printf("=== STEP 11: COMPLETE ===\n\n");
 }
 
 // ============================================================================
@@ -656,6 +790,8 @@ void xhci_address_device(uint32_t slot_id, uint32_t port) {
   } else {
     printf("=== STEP 10: EP0 MPS confirmed (%d), no update needed ===\n\n", mps);
   }
+
+  xhci_get_config_descriptor(slot_id);
 }
 
 // ============================================================================

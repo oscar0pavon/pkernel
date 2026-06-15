@@ -21,6 +21,7 @@
 
 // USB Descriptor types
 #define USB_DESC_TYPE_DEVICE 1
+#define USB_DESC_TYPE_CONFIG 2
 
 // EP Type field for Endpoint Context dw1[5:3]
 #define EP_TYPE_CONTROL_BIDIR 4
@@ -202,7 +203,8 @@ void xhci_address_device(uint32_t slot_id, uint32_t port);
 uint32_t xhci_poll_transfer_event(void);
 void xhci_get_descriptor(uint32_t slot_id, uint8_t desc_type, uint16_t length);
 void xhci_evaluate_context(uint32_t slot_id, uint8_t new_mps);
+void xhci_get_config_descriptor(uint32_t slot_id);
 
-extern volatile uint8_t descriptor_buffer[64];
+extern volatile uint8_t descriptor_buffer[256];
 
 #endif
