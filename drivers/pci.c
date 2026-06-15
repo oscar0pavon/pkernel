@@ -52,13 +52,13 @@ void setup_pci() {
           uint32_t bar0 = pci_regs[4];
           uint32_t bar1 = pci_regs[5];
 
-          xhci_base_mmio = (bar0 & 0xFFFFFFF0);
+          xhci_dev.base_mmio = (bar0 & 0xFFFFFFF0);
           if ((bar0 & 0x06) == 0x04) {
-            xhci_base_mmio |= ((uint64_t)bar1 << 32);
+            xhci_dev.base_mmio |= ((uint64_t)bar1 << 32);
           }
 
           printf("xHCI Controller Internal Registers live at: %lx\n",
-                 xhci_base_mmio);
+                 xhci_dev.base_mmio);
 
           init_xhci_driver();
         }

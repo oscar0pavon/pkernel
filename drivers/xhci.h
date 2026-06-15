@@ -5,6 +5,7 @@
 
 #include "../types.h"
 #include "pci.h"
+#include <stdint.h>
 
 #define MY_USB_ID 0x7a60
 
@@ -15,8 +16,6 @@
 #define TRB_TYPE_LINK 6
 
 #define TRB_TYPE_COMMAND_COMPLETION_EVENT 32
-
-extern uint64_t xhci_base_mmio;
 
 // Host Controller Capability Registers (Read-Only)
 struct XhciCapabilityRegs {
@@ -110,6 +109,8 @@ struct EventRingSegmentEntry {
 typedef struct EventRingSegmentEntry EventRingSegmentEntry;
 
 typedef struct XHCIDevice{
+  uint64_t base_mmio;
+  uint32_t max_ports;
   volatile uint32_t *pci_regs;
   volatile XhciCapabilityRegs *cap_regs;
   volatile XhciOperationalRegs *op_regs;

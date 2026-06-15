@@ -28,8 +28,8 @@ void parse_FADT() {
   if (acpi_compare_signature(FADT->header.signature, "FACP")) {
     uint32_t fadt_size = FADT->header.length;
     if (fadt_size != sizeof(struct FADT_t)) {
-      printf("FADT size not equal %d %d\n", FADT->header.length,
-             sizeof(struct FADT_t));
+      // printf("FADT size not equal %d %d\n", FADT->header.length,
+      //        sizeof(struct FADT_t));
     }
 
     ACPISystemDescriptorTableHeader *header =
@@ -37,14 +37,6 @@ void parse_FADT() {
 
     header = (ACPISystemDescriptorTableHeader *)&FADT->X_Dsdt;
 
-    if (acpi_compare_signature(header->signature, "DSDT")) {
-      printf("Work DSDT\n");
-    } else {
-      printf("DSDT not work\n");
-    }
-    if (FADT->X_Dsdt == 0) {
-      printf("DSDT memory zero\n");
-    }
     DSDT = (struct DSDT_t *)FADT->X_Dsdt;
     // print(DSDT->header.signature);
   }
@@ -52,9 +44,9 @@ void parse_FADT() {
 
 void parse_XSDT() {
 
-  if (acpi_compare_signature(XSDT->header.signature, "XSDT")) {
-    printf("is XSDT table\n");
-  }
+  // if (acpi_compare_signature(XSDT->header.signature, "XSDT")) {
+  //   printf("is XSDT table\n");
+  // }
 
   uint32_t number_of_entries_XSDT =
       (XSDT->header.length - sizeof(ACPISystemDescriptorTableHeader)) / 8;
@@ -65,19 +57,19 @@ void parse_XSDT() {
 
     // print(myheader->signature);
     if (acpi_compare_signature(myheader->signature, "FACP")) {
-      printf("Found FADT with size %d\n", myheader->length);
+      // printf("Found FADT with size %d\n", myheader->length);
       FADT = (struct FADT_t *)myheader;
       parse_FADT();
       continue;
     }
     if (acpi_compare_signature(myheader->signature, "APIC")) {
-      printf("Fount MADT with size %d\n", myheader->length);
+      // printf("Fount MADT with size %d\n", myheader->length);
     }
 
     // PCI Express Extended Configuration Space (ECAM).
     if (acpi_compare_signature(myheader->signature, "MCFG")) {
       struct MCFG_t *mcfg = (struct MCFG_t *)myheader;
-      printf("Found MCFG Table with size %d\n", myheader->length);
+      // printf("Found MCFG Table with size %d\n", myheader->length);
 
       // Pointer to the first entry block, which starts exactly 44 bytes into
       // the table

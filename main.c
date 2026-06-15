@@ -29,6 +29,27 @@ byte read_pit_count(void){
 	return count;
 }
 
+void run_counter() {
+  uint64_t tick = 0;
+  u16 seconds = 0;
+  for (int i = 0; i < 100000; i++) {
+    byte start_counter = read_pit_count();
+    byte current_count = 0xFE;
+    while (1) {
+      current_count = read_pit_count();
+      if (start_counter < current_count)
+        break;
+    }
+    tick++;
+    if (tick % 5400 == 0) {
+      clear_current_line();
+      printf("Time: %d", seconds);
+      seconds++;
+    }
+  }
+  printf("\n");
+}
+
 void main(BootInfo* boot_info){
 	init_frambuffer(&boot_info->frame_buffer);	
   uint64_t xsdt_address = boot_info->xsdt_address;
@@ -45,42 +66,14 @@ void main(BootInfo* boot_info){
   //test_identity_mapping();
 
 
-  printf("XSDT address: %x\n",xsdt_address);
+  //printf("XSDT address: %x\n",xsdt_address);
 
 	XSDT = (struct XSDT_t*)xsdt_address;
 	parse_XSDT();
 
-	printf("parsed acpi\n");
-	// printf("PCI List\n");
-	// print_pci_list();
-	//create_base_address();
-
 
 	printf("--You are in owner space now--\n");
 
-
-
-	uint64_t tick = 0;
-	u16 seconds = 0;
-	for(int i = 0; i < 100000; i++){
-		byte start_counter = read_pit_count();
-		byte current_count = 0xFE;
-		while(1){
-			current_count = read_pit_count();
-			if(start_counter<current_count)
-				break;
-		}
-		tick++;
-		if(tick%5400 == 0){
-			clear_current_line();
-			printf("Time: %d",seconds);
-			seconds++;
-		}
-	}
-	printf("\n");
-	
-	printf("PS/2 Virtual driver\n");
-	input_loop();
-
 	hang();	
+
 }
