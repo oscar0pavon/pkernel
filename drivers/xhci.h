@@ -69,13 +69,18 @@ struct XhciEventTRB {
   uint32_t Control;
 } __attribute__((packed));
 
+// xHCI spec 5.5.2 - Interrupter Register Set (32 bytes / 0x20)
+//   0x00 IMAN | 0x04 IMOD | 0x08 ERSTSZ | 0x0C RsvdP |
+//   0x10 ERSTBA (64-bit) | 0x18 ERDP (64-bit)
+// ERSTSZ is a full 32-bit register and there is a reserved DWORD at 0x0C;
+// without it ERSTBA/ERDP land 4 bytes too low and ERSTBA gets zeroed.
 struct XhciInterrupterRegs {
-  volatile uint32_t Iman;
-  volatile uint32_t Imod;
-  volatile uint16_t Erstsz;
-  volatile uint16_t Reserved;
-  volatile uint64_t Erstba;
-  volatile uint64_t Erdp;
+  volatile uint32_t Iman;      // 0x00
+  volatile uint32_t Imod;      // 0x04
+  volatile uint32_t Erstsz;    // 0x08 (low 16 bits = segment table size)
+  volatile uint32_t Reserved;  // 0x0C
+  volatile uint64_t Erstba;    // 0x10
+  volatile uint64_t Erdp;      // 0x18
 } __attribute__((packed));
 
 struct XhciRuntimeRegs {
