@@ -12,7 +12,6 @@ XHCIDevice xhci_device;
 
 uint64_t xhci_base_mmio = 0;
 
-static uint64_t xhci_base_address;
 static char* xhci_operational_registers;
 static char* xhci_runtime_registers;
 
@@ -42,14 +41,15 @@ __attribute__((aligned(4096))) struct EventRingSegmentEntry erst;
 
 static uint32_t xhci_max_ports = 0;
 
-void init_xhci_driver(uint64_t xhci_base) {
+void init_xhci_driver(void) {
+
   // Force the pointers to point straight to 
   // your physical memory address space
   //
-  volatile XhciCapabilityRegs* cap_regs = (XhciCapabilityRegs*)xhci_base;
+  volatile XhciCapabilityRegs* cap_regs = (XhciCapabilityRegs*)xhci_base_mmio;
   
   // Calculate where the operational registers start using CapLength
-  uint64_t op_base = xhci_base + cap_regs->CapLength;
+  uint64_t op_base = xhci_base_mmio + cap_regs->CapLength;
 
   volatile XhciOperationalRegs* op_regs = (XhciOperationalRegs*)op_base;
 
@@ -62,17 +62,13 @@ void init_xhci_driver(uint64_t xhci_base) {
   // Set Bit 1 (Host Controller Reset) in the USB Command Register
   op_regs->UsbCmd |= (1 << 1); // Set Bit 1 (HCRST)
                                //
-  printf("xHCI Reset Bit Cleared.\n");
-
-  printf("Waiting for Controller to become Ready (CNR)...\n");
 
   while (op_regs->UsbSts & (1 << 11)) {
     __asm__("pause");
   }
 
-  printf("xHCI Controller Ready for Configuration!\n");
 
-
+  printf("Waiting for Controller to become Ready (CNR)...\n");
   for (volatile uint64_t delay = 0; delay < 50000000ULL; delay++) {
     __asm__("pause");
   }
@@ -81,17 +77,15 @@ void init_xhci_driver(uint64_t xhci_base) {
   
   op_regs->UsbSts = 0xFFFFFFFF;
 
-  printf("Running setup hardware\n");
 
-  xhci_base_address = xhci_base;  
-
-  setup_xhci_hardware(xhci_base, cap_regs, op_regs);
+  setup_xhci_hardware(cap_regs, op_regs);
   
 }
-void poll_xhci_event_ring(uint64_t xhci_base,
-                          volatile struct XhciCapabilityRegs *cap_regs,
-                          volatile struct XhciOperationalRegs* op_regs) {
-  uint64_t rt_base = xhci_base + cap_regs->Rtsoff;
+void poll_xhci_event_ring(volatile XhciCapabilityRegs *cap_regs,
+                          volatile XhciOperationalRegs *op_regs) {
+
+  uint64_t rt_base = xhci_base_mmio + cap_regs->Rtsoff;
+
   volatile struct XhciInterrupterRegs *int_0 =
       (volatile struct XhciInterrupterRegs *)(rt_base + 0x20);
 
@@ -144,14 +138,12 @@ void poll_xhci_event_ring(uint64_t xhci_base,
   }
 }
 
-
 volatile uint32_t *
-get_xhci_doorbell_reg(uint64_t xhci_base,
-                      volatile struct XhciCapabilityRegs *cap_regs,
+get_xhci_doorbell_reg(volatile XhciCapabilityRegs *cap_regs,
                       uint32_t doorbell_index) {
   // Dboff gives the byte offset from the xHCI base address where the doorbells
   // start
-  uint64_t doorbell_base = xhci_base + cap_regs->Dboff;
+  uint64_t doorbell_base = xhci_base_mmio + cap_regs->Dboff;
 
   // Each doorbell register is exactly 4 bytes apart
   return (volatile uint32_t *)(doorbell_base + (doorbell_index * 4));
@@ -184,15 +176,16 @@ void xhci_send_command(uint64_t xhci_base,
     current_cycle_state ^= 1; // Toggle tracking cycle bits on wrap pass
   }
 
-  volatile uint32_t *db_0 = get_xhci_doorbell_reg(xhci_base, cap_regs, 0);
+  volatile uint32_t *db_0 = get_xhci_doorbell_reg(cap_regs, 0);
   *db_0 = 0; // Target 0 = Command Ring execution line
 
   printf("Doorbell 0 rung successfully!\n");
 }
 
 
-void scan_xhci_ports(volatile struct XhciCapabilityRegs *cap_regs,
-                     volatile struct XhciOperationalRegs *op_regs) {
+void scan_xhci_ports(volatile XhciCapabilityRegs *cap_regs,
+                     volatile XhciOperationalRegs *op_regs) {
+
   // Extract the total number of physical ports from structural parameters 1
   uint32_t max_ports = (cap_regs->HcsParams1 >> 24) & 0xFF;
   printf("Scanning %d physical ports for connected devices...\n", max_ports);
@@ -224,17 +217,16 @@ void scan_xhci_ports(volatile struct XhciCapabilityRegs *cap_regs,
       printf("    Port %d Reset complete. Device initialized.\n", p + 1);
 
       // Send an Enable Slot Command to request a Slot ID for the keyboard on Port 5
-      xhci_send_command(xhci_base_address, cap_regs, TRB_TYPE_ENABLE_SLOT);
+      xhci_send_command(xhci_base_mmio, cap_regs, TRB_TYPE_ENABLE_SLOT);
 
-      poll_xhci_event_ring(xhci_base_address, cap_regs, op_regs);
+      poll_xhci_event_ring(cap_regs, op_regs);
 
     }
   }
 }
 
-void setup_xhci_hardware(uint64_t xhci_base, 
-    volatile struct XhciCapabilityRegs* cap_regs, 
-    volatile struct XhciOperationalRegs* op_regs) {
+void setup_xhci_hardware(volatile XhciCapabilityRegs *cap_regs,
+                         volatile XhciOperationalRegs *op_regs) {
 
   // 1. Assign explicit, absolute physical RAM spaces (Guaranteed Free via UEFI Map Type 7)
   uint64_t my_dcbaap_phys       = 0x2000000; // 32 MB mark
@@ -267,7 +259,7 @@ void setup_xhci_hardware(uint64_t xhci_base,
   // BARE-METAL BYPASS: MANUALLY COMPUTE THE RUNTIME INTERRUPTER REGISTERS
   // This completely eliminates any compiler-inserted struct alignment padding!
   // =========================================================================
-  uint64_t rt_base = xhci_base + cap_regs->Rtsoff;
+  uint64_t rt_base = xhci_base_mmio + cap_regs->Rtsoff;
   uint64_t int0_base = rt_base + 0x20; // Interrupter 0 starts EXACTLY at Rtsoff + 0x20
 
   volatile uint32_t* reg_iman   = (volatile uint32_t*)(int0_base + 0x00); // IMAN offset 0x00

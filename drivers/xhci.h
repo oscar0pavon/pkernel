@@ -109,23 +109,18 @@ struct EventRingSegmentEntry {
 
 typedef struct XHCIDevice{
   volatile uint32_t *pci_regs;
-
+  volatile XhciCapabilityRegs *cap_regs;
+  volatile XhciOperationalRegs *op_regs;
 }XHCIDevice;
 
 extern XHCIDevice xhci_device;
 
-
-void setup_xhci_hardware(uint64_t xhci_base,
-                         volatile struct XhciCapabilityRegs *cap_regs,
-                         volatile struct XhciOperationalRegs *op_regs);
-
 void xhci_set_base_address(u64 address);
 void xhci_init();
 
-void init_xhci_driver(uint64_t xhci_base);
+void init_xhci_driver(void);
 
-uint64_t xhci_get_base_address(PciDevice dev);
-
-uint64_t xhci_get_base_address2(PciDevice dev);
+void setup_xhci_hardware(volatile XhciCapabilityRegs *cap_regs,
+                         volatile XhciOperationalRegs *op_regs);
 
 #endif
