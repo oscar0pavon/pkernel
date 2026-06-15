@@ -24,6 +24,9 @@ aligned4k volatile struct XhciTRB           ep0_ring[256] = {0};
 // DMA receive buffer for USB descriptors (256 bytes covers any standard descriptor)
 aligned4k volatile uint8_t descriptor_buffer[256] = {0};
 
+// EP1 IN transfer ring (used from Step 12 onward)
+aligned4k volatile struct XhciTRB ep1in_ring[256] = {0};
+
 XHCIDevice xhci_dev = {0};
 
 // Tracking state for command/event rings
@@ -35,6 +38,20 @@ uint32_t event_ring_cycle = 1;
 
 uint32_t ep0_enqueue = 0;
 uint32_t ep0_cycle   = 1;
+
+uint32_t ep1in_enqueue = 0;
+uint32_t ep1in_cycle   = 1;
+
+// Device info saved across enumeration steps
+static uint32_t dev_speed = 0;
+static uint32_t dev_port  = 0;
+
+// Endpoint info populated by Step 11, consumed by Steps 12–14
+uint8_t  ep1_in_addr     = 0;
+uint16_t ep1_in_mps      = 8;
+uint8_t  ep1_in_interval = 10;
+uint8_t  ep1_in_number   = 1;
+uint16_t hid_report_len  = 0;
 
 // ============================================================================
 // STEP 1: RESET CONTROLLER (xHCI Spec 4.2.1)
@@ -613,6 +630,7 @@ void xhci_get_config_descriptor(uint32_t slot_id) {
                          | ((uint16_t)descriptor_buffer[offset + 3] << 8);
       uint16_t rpt_len   = (uint16_t)descriptor_buffer[offset + 7]
                          | ((uint16_t)descriptor_buffer[offset + 8] << 8);
+      hid_report_len = rpt_len;  // save for Step 13
       printf("HID Descriptor:\n");
       printf("  bcdHID:             0x%x\n", bcdHID);
       printf("  bCountryCode:       %d\n",   descriptor_buffer[offset + 4]);
@@ -622,6 +640,13 @@ void xhci_get_config_descriptor(uint32_t slot_id) {
       uint8_t  addr = descriptor_buffer[offset + 2];
       uint16_t mps  = (uint16_t)descriptor_buffer[offset + 4]
                     | ((uint16_t)descriptor_buffer[offset + 5] << 8);
+      // Save IN endpoint info for Steps 12-14
+      if (addr & 0x80) {
+        ep1_in_addr     = addr;
+        ep1_in_mps      = mps;
+        ep1_in_interval = descriptor_buffer[offset + 6];
+        ep1_in_number   = addr & 0x0F;
+      }
       printf("Endpoint Descriptor:\n");
       printf("  bEndpointAddress:   0x%x (%s EP%d)\n",
              addr, (addr & 0x80) ? "IN" : "OUT", addr & 0x0F);
@@ -634,6 +659,115 @@ void xhci_get_config_descriptor(uint32_t slot_id) {
   }
 
   printf("=== STEP 11: COMPLETE ===\n\n");
+}
+
+// ============================================================================
+// EP0 HELPER: Control transfer with no data stage (e.g. SET_CONFIGURATION).
+// Setup TRB has TRT=0; Status Stage is IN (DIR=1) per xHCI spec 4.11.2.2.
+// ============================================================================
+static uint32_t ep0_control_nodata(uint32_t slot_id, uint64_t setup) {
+  // Setup Stage TRB: IDT=1, TRT=0 (no data stage)
+  volatile struct XhciTRB *s = &ep0_ring[ep0_enqueue++];
+  s->Parameter = setup;
+  s->Status    = 8;
+  s->Control   = (TRB_TYPE_SETUP_STAGE << 10) | (0U << 16) | (1U << 6) | ep0_cycle;
+  if (ep0_enqueue >= 255) {
+    ep0_ring[255].Control = (TRB_TYPE_LINK << 10) | (1U << 1) | ep0_cycle;
+    ep0_cycle ^= 1; ep0_enqueue = 0;
+  }
+
+  // Status Stage TRB: DIR=1 (IN), IOC=1
+  volatile struct XhciTRB *t = &ep0_ring[ep0_enqueue++];
+  t->Parameter = 0;
+  t->Status    = 0;
+  t->Control   = (TRB_TYPE_STATUS_STAGE << 10) | (1U << 16) | (1U << 5) | ep0_cycle;
+  if (ep0_enqueue >= 255) {
+    ep0_ring[255].Control = (TRB_TYPE_LINK << 10) | (1U << 1) | ep0_cycle;
+    ep0_cycle ^= 1; ep0_enqueue = 0;
+  }
+
+  xhci_dev.doorbell_regs[slot_id] = 1;
+  return xhci_poll_transfer_event();
+}
+
+// ============================================================================
+// STEP 12: SET_CONFIGURATION + Configure Endpoint (xHCI spec 4.3.4 / 4.6.6)
+// 1. Issues USB SET_CONFIGURATION to put device into Configured state.
+// 2. Issues xHCI Configure Endpoint command to register EP1 IN with the HC.
+// ============================================================================
+void xhci_set_configuration(uint32_t slot_id, uint8_t config_val) {
+  printf("=== STEP 12: SET_CONFIGURATION (value=%d) ===\n", config_val);
+
+  // USB SET_CONFIGURATION: bmRequestType=0x00, bRequest=0x09, wValue=config_val
+  uint64_t setup = ((uint64_t)0x09 << 8) | ((uint64_t)config_val << 16);
+  if (!ep0_control_nodata(slot_id, setup)) {
+    printf("ERROR: SET_CONFIGURATION USB transfer failed\n");
+    return;
+  }
+  printf("USB SET_CONFIGURATION accepted\n");
+
+  // xHCI Configure Endpoint: register EP1 IN (context index = 2*N+1 for IN)
+  uint32_t ep_ctx_idx = (uint32_t)(ep1_in_number * 2 + 1);  // e.g. EP1 IN = 3
+
+  // Init EP1 IN transfer ring
+  memset((void *)ep1in_ring, 0, sizeof(ep1in_ring));
+  ep1in_ring[255].Parameter = (uint64_t)&ep1in_ring[0];
+  ep1in_ring[255].Status    = 0;
+  ep1in_ring[255].Control   = (TRB_TYPE_LINK << 10) | (1U << 1) | 1;
+  ep1in_enqueue = 0;
+  ep1in_cycle   = 1;
+
+  // Convert USB bInterval → xHCI Interval (power-of-2 in 125 μs microframes)
+  uint8_t xhci_interval;
+  if (dev_speed == 3 || dev_speed == 4) {  // High Speed / SuperSpeed
+    xhci_interval = (ep1_in_interval > 0) ? ep1_in_interval - 1 : 0;
+  } else {
+    // Full/Low Speed: bInterval is in ms; convert to microframes (×8), take floor(log2)
+    uint32_t uf = (uint32_t)ep1_in_interval * 8;
+    xhci_interval = 0;
+    while (uf > 1 && xhci_interval < 15) { uf >>= 1; xhci_interval++; }
+  }
+
+  // Build Input Context for Configure Endpoint
+  memset((void *)&input_ctx, 0, sizeof(input_ctx));
+  // A0=slot, A{ep_ctx_idx}=EP1 IN
+  input_ctx.ctrl.add_flags = (1U << 0) | (1U << ep_ctx_idx);
+  // Slot: update ContextEntries to include EP1 IN
+  input_ctx.slot.dw0 = ((uint32_t)dev_speed << 20) | (ep_ctx_idx << 27);
+  input_ctx.slot.dw1 = (uint32_t)(dev_port + 1) << 16;
+  // EP1 IN Endpoint Context
+  input_ctx.ep1in.dw0 = (uint32_t)xhci_interval << 16;
+  // CErr=3, EPType=7 (Interrupt IN), MaxPacketSize
+  input_ctx.ep1in.dw1 = (3U << 1) | (7U << 3) | ((uint32_t)ep1_in_mps << 16);
+  uint64_t ep1in_addr = (uint64_t)&ep1in_ring[0];
+  input_ctx.ep1in.dw2 = (uint32_t)(ep1in_addr & ~0xFULL) | 1;  // DCS=1
+  input_ctx.ep1in.dw3 = (uint32_t)(ep1in_addr >> 32);
+  input_ctx.ep1in.dw4 = ep1_in_mps;  // AvgTRBLength = MPS for interrupt
+
+  // Send Configure Endpoint command
+  volatile struct XhciTRB *trb = &command_ring[command_ring_enqueue];
+  trb->Parameter = (uint64_t)&input_ctx;
+  trb->Status    = 0;
+  trb->Control   = (TRB_TYPE_CONFIGURE_ENDPOINT << 10)
+                 | ((uint32_t)slot_id << 24)
+                 | command_ring_cycle;
+
+  command_ring_enqueue++;
+  if (command_ring_enqueue == 255) {
+    command_ring[255].Control = (TRB_TYPE_LINK << 10) | (1U << 1) | command_ring_cycle;
+    command_ring_cycle ^= 1;
+    command_ring_enqueue = 0;
+  }
+  xhci_dev.doorbell_regs[0] = 0;
+
+  if (!xhci_poll_event_ring()) {
+    printf("ERROR: Configure Endpoint command failed\n");
+    return;
+  }
+
+  printf("EP%d IN configured (MPS=%d, xhci_interval=%d)\n",
+         ep1_in_number, ep1_in_mps, xhci_interval);
+  printf("=== STEP 12: COMPLETE ===\n\n");
 }
 
 // ============================================================================
@@ -705,6 +839,8 @@ void xhci_address_device(uint32_t slot_id, uint32_t port) {
   // Read port speed from PORTSC bits [13:10]
   uint32_t portsc = xhci_dev.op_regs->PortRegisterSet[port].PortSc;
   uint8_t  speed  = (portsc >> 10) & 0x0F;
+  dev_speed = speed;
+  dev_port  = port;
   printf("Speed code: %d\n", speed);
 
   // EP0 max packet size for initial enumeration (xHCI spec 4.8.2.1)
@@ -792,6 +928,10 @@ void xhci_address_device(uint32_t slot_id, uint32_t port) {
   }
 
   xhci_get_config_descriptor(slot_id);
+
+  // Step 12: SET_CONFIGURATION + Configure Endpoint
+  uint8_t config_val = descriptor_buffer[5];  // bConfigurationValue from Config Descriptor
+  xhci_set_configuration(slot_id, config_val);
 }
 
 // ============================================================================

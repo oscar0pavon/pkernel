@@ -15,6 +15,7 @@
 #define TRB_TYPE_ENABLE_SLOT              9
 #define TRB_TYPE_ADDRESS_DEVICE           11
 #define TRB_TYPE_LINK                     6
+#define TRB_TYPE_CONFIGURE_ENDPOINT       12
 #define TRB_TYPE_EVALUATE_CONTEXT         13
 #define TRB_TYPE_TRANSFER_EVENT           32
 #define TRB_TYPE_COMMAND_COMPLETION_EVENT 33
@@ -142,17 +143,21 @@ struct XhciInputControlContext {
   uint32_t reserved[6];
 } __attribute__((packed));
 
-// Input Context = Control + Slot + EP0  (96 bytes for Address Device)
+// Input Context = Control + Slot + EP0..EP1-IN (160 bytes)
 struct XhciInputContext {
-  struct XhciInputControlContext ctrl; // offset 0x00
-  struct XhciSlotContext         slot; // offset 0x20
-  struct XhciEndpointContext     ep0;  // offset 0x40
+  struct XhciInputControlContext ctrl;   // offset 0x00
+  struct XhciSlotContext         slot;   // offset 0x20
+  struct XhciEndpointContext     ep0;    // offset 0x40  (ctx index 1)
+  struct XhciEndpointContext     ep1out; // offset 0x60  (ctx index 2)
+  struct XhciEndpointContext     ep1in;  // offset 0x80  (ctx index 3)
 } __attribute__((packed));
 
-// Output Device Context = Slot + EP0  (64 bytes; DCBAAP[slot] points here)
+// Output Device Context = Slot + EP0..EP1-IN (128 bytes; DCBAAP[slot] points here)
 struct XhciDeviceContext {
-  struct XhciSlotContext     slot; // offset 0x00
-  struct XhciEndpointContext ep0;  // offset 0x20
+  struct XhciSlotContext     slot;   // offset 0x00
+  struct XhciEndpointContext ep0;    // offset 0x20
+  struct XhciEndpointContext ep1out; // offset 0x40
+  struct XhciEndpointContext ep1in;  // offset 0x60
 } __attribute__((packed));
 
 // ============================================================================
@@ -204,7 +209,18 @@ uint32_t xhci_poll_transfer_event(void);
 void xhci_get_descriptor(uint32_t slot_id, uint8_t desc_type, uint16_t length);
 void xhci_evaluate_context(uint32_t slot_id, uint8_t new_mps);
 void xhci_get_config_descriptor(uint32_t slot_id);
+void xhci_set_configuration(uint32_t slot_id, uint8_t config_val);
 
 extern volatile uint8_t descriptor_buffer[256];
+extern volatile struct XhciTRB ep1in_ring[256];
+extern uint32_t ep1in_enqueue;
+extern uint32_t ep1in_cycle;
+
+// Endpoint info populated during Step 11, consumed by Steps 12–14
+extern uint8_t  ep1_in_addr;
+extern uint16_t ep1_in_mps;
+extern uint8_t  ep1_in_interval;
+extern uint8_t  ep1_in_number;
+extern uint16_t hid_report_len;
 
 #endif
