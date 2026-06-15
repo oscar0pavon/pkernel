@@ -3,6 +3,8 @@
 
 #include "types.h"
 
+void console_init(void);
+
 void print(const char* string);
 
 void print_in_current_line(const char* string);

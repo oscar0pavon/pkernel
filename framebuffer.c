@@ -17,6 +17,7 @@ FrameBuffer* get_framebuffer(){
 
 void init_frambuffer(FrameBuffer* in_framebuffer){
 	copy_memory(get_framebuffer(), in_framebuffer, sizeof(struct FrameBuffer));
+	console_init();
 	clear();
 	printf("Horizontal %d\n", frame_buffer.horizontal_resolution);
 }

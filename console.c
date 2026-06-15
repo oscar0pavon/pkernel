@@ -19,21 +19,26 @@ static const uint32_t background_color = 0x282C34;
 static int console_line_buffer_number = 0;
 static int console_line_char_counter = 0;
 
-static void console_newline(void) {
+static uint32_t console_max_lines = 0;
+static uint32_t console_max_cols  = 0;
+
+void console_init(void) {
   FrameBuffer *fb = get_framebuffer();
-  uint32_t max_lines = fb->vertical_resolution / 16;
+  console_max_lines = fb->vertical_resolution / 16;
+  console_max_cols  = fb->horizontal_resolution / 8;
+}
+
+static void console_newline(void) {
   console_current_line++;
   console_line_char_counter = 0;
-  if ((uint32_t)console_current_line >= max_lines) {
+  if (console_max_lines > 0 && (uint32_t)console_current_line >= console_max_lines) {
     scroll_up();
-    console_current_line = (int)(max_lines - 1);
+    console_current_line = (int)(console_max_lines - 1);
   }
 }
 
 static void console_put_char(char c) {
-  FrameBuffer *fb = get_framebuffer();
-  uint32_t max_cols = fb->horizontal_resolution / 8;
-  if ((uint32_t)console_line_char_counter >= max_cols) {
+  if (console_max_cols > 0 && (uint32_t)console_line_char_counter >= console_max_cols) {
     console_newline();
   }
   draw_character((unsigned char)c, console_line_char_counter * 8,
