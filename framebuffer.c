@@ -29,6 +29,27 @@ void plot_pixel(int x, int y, uint32_t pixel){
 
 
 
+void scroll_up(void) {
+  FrameBuffer *fb = get_framebuffer();
+  uint32_t pitch      = PIXEL_FORMAT * fb->pixel_per_scan_line;
+  uint32_t char_height = 16;
+  uint8_t *vram = (uint8_t *)fb->vram;
+
+  // Shift all pixel rows up by one character height
+  copy_memory(vram, vram + pitch * char_height,
+              pitch * (fb->vertical_resolution - char_height));
+
+  // Clear the newly exposed bottom row
+  uint32_t bg = get_background_color();
+  uint8_t *last_line = vram + pitch * (fb->vertical_resolution - char_height);
+  for (uint32_t y = 0; y < char_height; y++) {
+    uint32_t *row = (uint32_t *)(last_line + y * pitch);
+    for (uint32_t x = 0; x < fb->horizontal_resolution; x++) {
+      row[x] = bg;
+    }
+  }
+}
+
 void clear(){
   FrameBuffer* framebuffer = get_framebuffer();
 	u32 width = framebuffer->horizontal_resolution;

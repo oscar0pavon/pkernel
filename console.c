@@ -19,6 +19,28 @@ static const uint32_t background_color = 0x282C34;
 static int console_line_buffer_number = 0;
 static int console_line_char_counter = 0;
 
+static void console_newline(void) {
+  FrameBuffer *fb = get_framebuffer();
+  uint32_t max_lines = fb->vertical_resolution / 16;
+  console_current_line++;
+  console_line_char_counter = 0;
+  if ((uint32_t)console_current_line >= max_lines) {
+    scroll_up();
+    console_current_line = (int)(max_lines - 1);
+  }
+}
+
+static void console_put_char(char c) {
+  FrameBuffer *fb = get_framebuffer();
+  uint32_t max_cols = fb->horizontal_resolution / 8;
+  if ((uint32_t)console_line_char_counter >= max_cols) {
+    console_newline();
+  }
+  draw_character((unsigned char)c, console_line_char_counter * 8,
+                 console_current_line * 16, white, background_color);
+  console_line_char_counter++;
+}
+
 // Static buffer: 16 hex characters + 1 null terminator
 static char hex_buffer[17];
 
@@ -70,7 +92,7 @@ const char* get_hex_string(uint64_t value) {
 void print_uint(uint32_t number){
 
 	char buf[16];
-	set_memory(buf, 0, 16);		
+	memset(buf, 0, 16);		
 	char *pos = buf;
 
 	do {
@@ -97,9 +119,8 @@ void print_uint(uint32_t number){
 
 void print(const char* format){
  
-  while(*format){
-	  draw_character(*format, console_line_char_counter*8, console_current_line*16, white, background_color);
-    console_line_char_counter++;
+  while (*format) {
+    console_put_char(*format);
     format++;
   }
 
@@ -145,12 +166,9 @@ void printf(const char* format, ...) {
                 // FIX RECURSION BUG: Print characters directly instead of calling printf() recursively!
                 while (*string) {
                     if (*string == '\n') {
-                        console_current_line++;
-                        console_line_char_counter = 0;
+                        console_newline();
                     } else {
-                        draw_character(*string, console_line_char_counter * 8,
-                                       console_current_line * 16, white, background_color);
-                        console_line_char_counter++;
+                        console_put_char(*string);
                     }
                     string++;
                 }
@@ -167,11 +185,8 @@ void printf(const char* format, ...) {
                 
                 const char *hex = get_hex_string(number);
                 
-                // Print the hex string directly to the screen characters array
                 while (*hex) {
-                    draw_character(*hex, console_line_char_counter * 8,
-                                   console_current_line * 16, white, background_color);
-                    console_line_char_counter++;
+                    console_put_char(*hex);
                     hex++;
                 }
             } 
@@ -182,13 +197,10 @@ void printf(const char* format, ...) {
         } 
         else if (*format == '\n') {
             format++;
-            console_current_line++;
-            console_line_char_counter = 0;
-        } 
+            console_newline();
+        }
         else {
-            draw_character(*format, console_line_char_counter * 8,
-                           console_current_line * 16, white, background_color);
-            console_line_char_counter++;
+            console_put_char(*format);
             format++;
         }
     }

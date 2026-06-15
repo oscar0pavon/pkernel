@@ -1,95 +1,419 @@
 #include "xhci.h"
 #include "../console.h"
 #include <stdint.h>
-
-#define PCI_REG_BAR0 0x10
-#define PCI_REG_BAR1 0x14
-
-#define HCIVERSION 0x02
-#define RTSOFF 0x18
-
-XHCIDevice xhci_dev = {0};
-
+#include <string.h>
 
 #define aligned4k __attribute__((aligned(4096)))
 
-// Allocate 64-byte aligned tracking structures in your kernel's RAM
+// ============================================================================
+// DATA STRUCTURES - All page-aligned for DMA
+// ============================================================================
+
 aligned4k volatile uint64_t dcbaap[64] = {0};
-// 256 TRBs (each is 16 bytes/4 dwords)
-aligned4k volatile uint32_t command_ring[256 * 4] = {0};
-aligned4k volatile uint32_t event_ring[256 * 4] = {0};
+aligned4k volatile struct XhciTRB command_ring[256] = {0};
+aligned4k volatile struct XhciEventTRB event_ring[256] = {0};
+aligned4k volatile struct EventRingSegmentEntry erst = {0};
 
-aligned4k EventRingSegmentEntry erst;
+XHCIDevice xhci_dev = {0};
 
+// Tracking state for command/event rings
+uint32_t command_ring_enqueue = 0;
+uint32_t command_ring_cycle = 1;
 
-void init_xhci_driver(void) {
+uint32_t event_ring_dequeue = 0;
+uint32_t event_ring_cycle = 1;
 
-  // Force the pointers to point straight to 
-  // your physical memory address space
-  //
-  xhci_dev.cap_regs = (XhciCapabilityRegs*)xhci_dev.base_mmio;
-  
-  // Calculate where the operational registers start using CapLength
-  uint64_t op_base = xhci_dev.base_mmio + xhci_dev.cap_regs->CapLength;
+// ============================================================================
+// STEP 1: RESET CONTROLLER (xHCI Spec 4.2.1)
+// ============================================================================
+void xhci_reset_controller(void) {
+  printf("=== STEP 1: Reset Controller ===\n");
 
-  xhci_dev.op_regs = (XhciOperationalRegs*)op_base;
+  // Set HCRST bit (bit 1 of UsbCmd)
+  printf("Setting HCRST bit...\n");
+  xhci_dev.op_regs->UsbCmd |= (1 << 1);
 
-  xhci_dev.max_ports = (xhci_dev.cap_regs->HcsParams1 >> 24) & 0xFF;
-
-  printf("Total USB Ports Available: %d\n", xhci_dev.max_ports);
-
-  // Wait for the hardware to clear the reset bit automatically
-  printf("Resetting xHCI Controller...\n");
-  // Set Bit 1 (Host Controller Reset) in the USB Command Register
-  xhci_dev.op_regs->UsbCmd |= (1 << 1); // Set Bit 1 (HCRST)
-                               //
-
-  while (xhci_dev.op_regs->UsbSts & (1 << 11)) {
+  // Wait for HCRST to clear (hardware does this)
+  printf("Waiting for HCRST to clear...\n");
+  uint32_t timeout = 1000000;
+  while ((xhci_dev.op_regs->UsbCmd & (1 << 1)) && timeout--) {
     __asm__("pause");
   }
 
+  if (timeout == 0) {
+    printf("ERROR: HCRST did not clear!\n");
+    return;
+  }
 
-  printf("Waiting for Controller to become Ready (CNR)...\n");
-  for (volatile uint64_t delay = 0; delay < 50000000ULL; delay++) {
+  printf("HCRST cleared.\n");
+
+  // Wait for Controller Not Ready (CNR, bit 11 of UsbSts) to clear
+  printf("Waiting for CNR to clear...\n");
+  timeout = 1000000;
+  while ((xhci_dev.op_regs->UsbSts & (1 << 11)) && timeout--) {
     __asm__("pause");
   }
 
-  xhci_dev.pci_regs[1] |= (1 << 1) | (1 << 2);
-  
+  if (timeout == 0) {
+    printf("ERROR: CNR did not clear!\n");
+    return;
+  }
+
+  printf("Controller is ready for configuration.\n");
+
+  // Clear any existing status bits
   xhci_dev.op_regs->UsbSts = 0xFFFFFFFF;
 
-  test_xhci_dma_identity();
-
-  //setup_xhci_hardware(cap_regs, op_regs);
-  
+  printf("=== STEP 1: COMPLETE ===\n\n");
 }
 
-void test_xhci_dma_identity(void) {
-  // 1. Point op_regs->Dcbaap to our global array using its compiler virtual
-  // address We place a recognizable magic signature right inside index 0
-  dcbaap[0] = 0x1122334455667788ULL;
+// ============================================================================
+// STEP 2: INITIALIZE DATA STRUCTURES
+// ============================================================================
+void xhci_init_structures(void) {
+  printf("=== STEP 2: Initialize Data Structures ===\n");
 
-  // 2. Write the address of our array directly into the xHCI hardware register
-  xhci_dev.op_regs->Dcbaap = (uint64_t)&dcbaap;
+  // Zero out all rings and tables
+  memset((void*)command_ring, 0, sizeof(command_ring));
+  memset((void*)event_ring, 0, sizeof(event_ring));
+  memset((void*)dcbaap, 0, sizeof(dcbaap));
+  memset((void*)&erst, 0, sizeof(erst));
 
-  // 3. Forcibly read the register BACK from the xHCI chip hardware lines
-  uint64_t hardware_read_address = xhci_dev.op_regs->Dcbaap;
+  printf("Zeroed command ring, event ring, DCBAAP, ERST.\n");
+  printf("=== STEP 2: COMPLETE ===\n\n");
+}
 
-  // 4. Now, look at the physical memory address the chip is actually holding
-  volatile uint64_t *chip_target_memory =
-      (volatile uint64_t *)hardware_read_address;
+// ============================================================================
+// STEP 3: SETUP COMMAND RING (xHCI Spec 4.6.2.1)
+// ============================================================================
+void xhci_setup_command_ring(void) {
+  printf("=== STEP 3: Setup Command Ring ===\n");
 
-  printf("\n--- xHCI HARDWARE DMA CHECK ---\n");
-  printf("Compiler Symbol Address (&dcbaap): 0x%lx\n", (uint64_t)&dcbaap);
-  printf("Register Readback Address:        0x%lx\n", hardware_read_address);
-  printf("Value inside Chip Memory Target:  0x%lx\n", *chip_target_memory);
+  // Place Link TRB at the end that points back to start
+  // This allows the ring to wrap around
+  struct XhciTRB *link_trb = &command_ring[255];
 
-  if (*chip_target_memory == 0x1122334455667788ULL) {
-    printf("SUCCESS: The xHCI hardware and your CPU see the exact same RAM "
-           "bytes!\n");
-  } else {
-    printf("FAIL: The xHCI hardware is looking at a different physical RAM "
-           "cell!\n");
+  link_trb->Parameter = (uint64_t)&command_ring[0];  // Points back to start
+  link_trb->Status = 0;
+  // Control: TRB Type (Link=6), Toggle Cycle (bit 1)=1, Cycle bit=1
+  link_trb->Control = (TRB_TYPE_LINK << 10) | (1 << 1) | 1;
+
+  printf("Link TRB placed at index 255.\n");
+  printf("Link TRB Parameter: 0x%lx\n", link_trb->Parameter);
+  printf("Link TRB Control: 0x%x\n", link_trb->Control);
+
+  // Write Command Ring pointer to hardware
+  // Bit 0 (RCS) = Cycle State (1 initially)
+  uint64_t crcr = (uint64_t)&command_ring[0] | 1;
+  xhci_dev.op_regs->Crcr = crcr;
+
+  printf("CRCR written: 0x%lx\n", crcr);
+  printf("=== STEP 3: COMPLETE ===\n\n");
+}
+
+// ============================================================================
+// STEP 4: SETUP EVENT RING AND ERST (xHCI Spec 4.9.4)
+// ============================================================================
+void xhci_setup_event_ring(void) {
+  printf("=== STEP 4: Setup Event Ring and ERST ===\n");
+
+  // Get runtime registers
+  uint64_t rt_base = xhci_dev.base_mmio + xhci_dev.cap_regs->Rtsoff;
+  volatile struct XhciInterrupterRegs *int_0 =
+      (volatile struct XhciInterrupterRegs *)(rt_base + 0x20);
+
+  xhci_dev.runtime_regs = (struct XhciRuntimeRegs *)rt_base;
+  xhci_dev.int_0_regs = int_0;
+
+  // Setup ERST entry (one segment in our case)
+  erst.RingSegmentBaseAddress = (uint64_t)&event_ring[0];
+  erst.RingSegmentSize = 256;
+  erst.Reserved = 0;
+
+  printf("ERST Entry:\n");
+  printf("  Base Address: 0x%lx\n", erst.RingSegmentBaseAddress);
+  printf("  Ring Size: %d\n", erst.RingSegmentSize);
+
+  // Write to interrupter 0 in correct order per spec:
+  // 1. Erstsz (table size) FIRST
+  int_0->Erstsz = 1;  // 1 segment entry
+  printf("ERSTSZ written: 1\n");
+
+  // 2. Erstba (table base address)
+  int_0->Erstba = (uint64_t)&erst;
+  printf("ERSTBA written: 0x%lx\n", int_0->Erstba);
+
+  // 3. Erdp (dequeue pointer) - must be 16-byte aligned
+  uint64_t erdp = (uint64_t)&event_ring[0];
+  erdp &= 0xFFFFFFFFFFFFFFF0ULL;  // Align to 16 bytes
+  erdp |= (1 << 3);               // Set EHB (Event Handler Busy clear)
+  int_0->Erdp = erdp;
+  printf("ERDP written: 0x%lx\n", erdp);
+
+  // 4. Iman (interrupt management) - keep interrupts disabled initially
+  int_0->Iman = 0;
+  printf("IMAN written: 0 (interrupts disabled)\n");
+
+  printf("=== STEP 4: COMPLETE ===\n\n");
+}
+
+// ============================================================================
+// STEP 5: CONFIGURE AND START CONTROLLER (xHCI Spec 4.2.2 and 4.2.3)
+// ============================================================================
+void xhci_start_controller(void) {
+  printf("=== STEP 5: Configure and Start Controller ===\n");
+
+  // Set Config register - number of device slots to enable
+  // We start with 1 slot for a single device
+  uint32_t max_slots = (xhci_dev.cap_regs->HcsParams1 & 0xFF);
+  printf("Hardware supports max %d slots\n", max_slots);
+
+  xhci_dev.op_regs->Config = 1;  // Enable 1 slot
+  printf("CONFIG set to 1 slot.\n");
+
+  // Set DCBAAP (Device Context Base Address Array Pointer)
+  xhci_dev.op_regs->Dcbaap = (uint64_t)&dcbaap[0];
+  printf("DCBAAP written: 0x%lx\n", (uint64_t)&dcbaap[0]);
+
+  // Set Run bit (bit 0 of UsbCmd)
+  printf("Setting Run bit...\n");
+  xhci_dev.op_regs->UsbCmd |= (1 << 0);
+
+  // Wait for HCHalted to clear (bit 0 of UsbSts)
+  printf("Waiting for controller to start...\n");
+  uint32_t timeout = 100000;
+  while ((xhci_dev.op_regs->UsbSts & (1 << 0)) && timeout--) {
+    __asm__("pause");
   }
-  printf("--------------------------------\n");
+
+  if (timeout == 0) {
+    printf("ERROR: Controller failed to start!\n");
+    printf("USBSTS: 0x%x\n", xhci_dev.op_regs->UsbSts);
+    xhci_print_status();
+    return;
+  }
+
+  printf("Controller is now RUNNING!\n");
+  printf("USBSTS: 0x%x\n", xhci_dev.op_regs->UsbSts);
+
+  printf("=== STEP 5: COMPLETE ===\n\n");
+}
+
+// ============================================================================
+// DEBUG: Print status register bits
+// ============================================================================
+void xhci_print_status(void) {
+  uint32_t status = xhci_dev.op_regs->UsbSts;
+
+  printf("USBSTS bits:\n");
+  printf("  HCHalted (0): %d\n", (status >> 0) & 1);
+  printf("  HSE (2):      %d\n", (status >> 2) & 1);
+  printf("  HCE (12):     %d\n", (status >> 12) & 1);
+  printf("  CNR (11):     %d\n", (status >> 11) & 1);
+  printf("  Raw value: 0x%x\n", status);
+}
+
+// ============================================================================
+// STEP 6: SCAN PORTS FOR DEVICES
+// ============================================================================
+void xhci_scan_ports(void) {
+
+  uint32_t max_ports = xhci_dev.max_ports;
+  printf("Scanning %d ports...\n", max_ports);
+
+  for (uint32_t port = 0; port < max_ports; port++) {
+    uint32_t portsc = xhci_dev.op_regs->PortRegisterSet[port].PortSc;
+
+    // Bit 0 = Current Connect Status (CCS)
+    if (portsc & (1 << 0)) {
+      printf("\n--> Device connected on Port %d!\n", port + 1);
+      printf("    Raw PORTSC: 0x%x\n", portsc);
+
+      // Extract Port Speed (bits 10-13)
+      uint8_t speed = (portsc >> 10) & 0x0F;
+
+      // Reset the port
+      printf("    Resetting port...\n");
+
+      // Set Port Reset (bit 4)
+      uint32_t portsc_reset = portsc | (1 << 4);
+      // Clear other write-1-to-clear bits (bits 17-20)
+      portsc_reset &= ~(0x0F << 17);
+      xhci_dev.op_regs->PortRegisterSet[port].PortSc = portsc_reset;
+
+      // Wait for reset to complete (hardware clears bit 4)
+      uint32_t reset_timeout = 100000;
+      while ((xhci_dev.op_regs->PortRegisterSet[port].PortSc & (1 << 4)) &&
+             reset_timeout--) {
+        __asm__("pause");
+      }
+
+      printf("    Port reset complete.\n");
+
+      // Verify port is now enabled (bit 1) before proceeding
+      uint32_t portsc_after = xhci_dev.op_regs->PortRegisterSet[port].PortSc;
+      if (!(portsc_after & (1 << 1))) {
+        printf("    WARNING: Port %d not enabled after reset (PORTSC=0x%x)\n",
+               port + 1, portsc_after);
+        continue;
+      }
+
+      xhci_enable_slot(port);
+    }
+  }
+
+}
+
+// ============================================================================
+// TEST: Verify address translation (optional, you already did this)
+// ============================================================================
+void xhci_test_dma_identity(void) {
+  printf("=== DMA Address Translation Test ===\n");
+
+  dcbaap[0] = 0x1122334455667788ULL;
+  xhci_dev.op_regs->Dcbaap = (uint64_t)&dcbaap[0];
+
+  uint64_t hardware_address = xhci_dev.op_regs->Dcbaap;
+  volatile uint64_t *chip_memory = (volatile uint64_t *)hardware_address;
+
+  printf("Kernel virtual address: 0x%lx\n", (uint64_t)&dcbaap[0]);
+  printf("Hardware sees address:  0x%lx\n", hardware_address);
+  printf("Value at hardware addr: 0x%lx\n", *chip_memory);
+
+  if (*chip_memory == 0x1122334455667788ULL) {
+    printf("✓ SUCCESS: 1:1 mapping confirmed!\n");
+  } else {
+    printf("✗ FAIL: Address translation issue!\n");
+  }
+
+  // Clean up
+  dcbaap[0] = 0;
+
+  printf("=== Test Complete ===\n\n");
+}
+
+// ============================================================================
+// COMMAND RING: Submit a TRB and ring doorbell 0 (xHCI spec 4.6)
+// ============================================================================
+void xhci_send_command(uint32_t trb_type, uint64_t parameter) {
+  volatile struct XhciTRB *trb = &command_ring[command_ring_enqueue];
+
+  trb->Parameter = parameter;
+  trb->Status    = 0;
+  // Bits 10-15: TRB Type; bit 0: Cycle bit
+  trb->Control   = (trb_type << 10) | command_ring_cycle;
+
+  command_ring_enqueue++;
+
+  // Wrap at Link TRB position (index 255)
+  if (command_ring_enqueue == 255) {
+    // Update Link TRB cycle bit; TC=1 means hardware toggles on wrap
+    command_ring[255].Control = (TRB_TYPE_LINK << 10) | (1 << 1) | command_ring_cycle;
+    command_ring_cycle ^= 1;
+    command_ring_enqueue = 0;
+  }
+
+  // Doorbell 0 = host controller command ring; value 0 = "no target"
+  xhci_dev.doorbell_regs[0] = 0;
+
+  printf("CMD: type=%d enq=%d cycle=%d\n", trb_type, command_ring_enqueue, command_ring_cycle);
+}
+
+// ============================================================================
+// EVENT RING: Poll for a Command Completion Event (xHCI spec 4.11.5.1)
+// Returns the slot_id on success (completion code 1), 0 on error/timeout.
+// ============================================================================
+uint32_t xhci_poll_event_ring(void) {
+  uint32_t timeout = 2000000;
+
+  while (timeout--) {
+    volatile struct XhciEventTRB *event = &event_ring[event_ring_dequeue];
+
+    // A TRB is valid when its cycle bit matches our expected cycle
+    if ((event->Control & 1) == event_ring_cycle) {
+      uint32_t trb_type       = (event->Control >> 10) & 0x3F;
+      uint32_t completion_code = (event->Status  >> 24) & 0xFF;
+      uint32_t slot_id        = (event->Control  >> 24) & 0xFF;
+
+      printf("EVT: type=%d code=%d slot=%d\n", trb_type, completion_code, slot_id);
+
+      // Advance dequeue pointer, toggle cycle on wrap
+      event_ring_dequeue++;
+      if (event_ring_dequeue >= 256) {
+        event_ring_dequeue = 0;
+        event_ring_cycle ^= 1;
+      }
+
+      // Acknowledge: update ERDP and clear EHB (bit 3)
+      uint64_t erdp = (uint64_t)&event_ring[event_ring_dequeue] | (1 << 3);
+      xhci_dev.int_0_regs->Erdp = erdp;
+
+      if (trb_type == TRB_TYPE_COMMAND_COMPLETION_EVENT) {
+        if (completion_code != 1) {
+          printf("ERROR: Command completion code %d\n", completion_code);
+          return 0;
+        }
+        return slot_id;
+      }
+      // Non-command events (e.g. port status change): consume and keep polling
+    }
+
+    __asm__("pause");
+  }
+
+  printf("ERROR: Event ring timed out (USBSTS=0x%x)\n", xhci_dev.op_regs->UsbSts);
+  return 0;
+}
+
+// ============================================================================
+// STEP 7: ENABLE SLOT (xHCI spec 4.3.2)
+// Sends an Enable Slot command and waits for the controller to assign a slot.
+// ============================================================================
+void xhci_enable_slot(uint32_t port) {
+  printf("=== STEP 7: Enable Slot (port %d) ===\n", port + 1);
+
+  xhci_send_command(TRB_TYPE_ENABLE_SLOT, 0);
+
+  uint32_t slot_id = xhci_poll_event_ring();
+  if (slot_id == 0) {
+    printf("ERROR: Enable Slot failed on port %d\n", port + 1);
+    return;
+  }
+
+  printf("Port %d -> slot %d assigned\n", port + 1, slot_id);
+  printf("=== STEP 7: COMPLETE ===\n\n");
+
+  // Next: xhci_address_device(slot_id, port) to set up Input Context
+  // and move the slot to the Addressed state.
+}
+
+// ============================================================================
+// MAIN INITIALIZATION ENTRY POINT
+// ============================================================================
+void init_xhci_driver(void) {
+  printf("MMIO Base: 0x%lx\n", xhci_dev.base_mmio);
+
+  // Setup capability/operational register pointers
+  xhci_dev.cap_regs = (XhciCapabilityRegs *)xhci_dev.base_mmio;
+  uint64_t op_base = xhci_dev.base_mmio + xhci_dev.cap_regs->CapLength;
+  xhci_dev.op_regs = (XhciOperationalRegs *)op_base;
+  xhci_dev.max_ports = (xhci_dev.cap_regs->HcsParams1 >> 24) & 0xFF;
+
+  xhci_dev.doorbell_regs = (volatile uint32_t *)(xhci_dev.base_mmio + xhci_dev.cap_regs->Dboff);
+
+  printf("HCI Version: 0x%x\n", xhci_dev.cap_regs->HciVersion);
+  printf("Max Ports: %d\n", xhci_dev.max_ports);
+  printf("CapLength: 0x%x\n", xhci_dev.cap_regs->CapLength);
+  printf("Operational Registers at: 0x%lx\n", op_base);
+  printf("Doorbell Array at: 0x%lx\n", (uint64_t)xhci_dev.doorbell_regs);
+  printf("\n");
+
+  // Follow xHCI spec section 4.2 initialization order
+  xhci_reset_controller();
+  xhci_init_structures();
+  xhci_setup_command_ring();
+  xhci_setup_event_ring();
+  xhci_start_controller();
+  xhci_scan_ports();
+
 }

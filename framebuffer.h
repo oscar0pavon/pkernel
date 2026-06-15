@@ -20,6 +20,8 @@ void draw_character(unsigned char character, int x, int y,
 
 void plot_pixel(int x, int y, uint32_t pixel);
 
+void scroll_up(void);
+
 void clear();
 
 FrameBuffer* get_framebuffer();

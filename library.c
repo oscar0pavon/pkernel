@@ -19,7 +19,7 @@ size_t u16strlen(const uint16_t *str)
 	return pos - str - 1;
 }
 
-void *set_memory(void *pointer, int value, size_t size)
+void *memset(void *pointer, int value, size_t size)
 {
 	char *to = pointer;
 

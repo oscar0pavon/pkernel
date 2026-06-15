@@ -6,7 +6,7 @@
 int string_length(const char* string);
 
 	
-void *set_memory(void *pointer, int value, size_t size);
+void *memset(void *pointer, int value, size_t size);
 void copy_memory(void *destination, const void *source, size_t size);
 
 
