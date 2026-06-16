@@ -4,9 +4,10 @@ pkernel is a kernel for x86_64
 
 - Print into the framebuffer
 - Get PCI list
-- PS/2 keyboard for testing in qemu
+- xHCI driver for using USB keyboars
 
-I'm working in the USB Host controller for get USB Keyboard
+### TODO:
+    Create a basic shell
 
 # Configure
 
@@ -15,24 +16,25 @@ I'm working in the USB Host controller for get USB Keyboard
 For using pboot, this is necesary for booting in the virtual machine
 
 # Build
-You only need GCC for building. I included the Flat Assembler in ./bin directory
+This only work on GNU/Linux  
+You only need GCC for building. I included the Flat Assembler in ./tools directory
 
-    make
+    make -j4
 
 # Run and test
-You can test with QEMU, there is a script called "start"
+You can test with QEMU, there is a script called "run"
 
-    ./start
+    ./run
 
-You can test in real hardware too. Firt you need to install pboot and pkerel in /boot  
+You can test in real hardware too. Firstly you need to install pboot and pkerel in /boot 
 Or your EFI partition /boot/efi
 
 # Building method
-I use GCC and link script for create a raw binary for loading from EFI memory.
+I use GCC for create a raw binary and then link everything together with the (.ld) script 
+Then i load from EFI memory. 
 
 # Programming
-You must to use "static" global variables. Linker script not utilize ".bss" section of binaries  
-The bootloader managed the framebuffer getting info, so it's passed like an argument to the kernel binary.  
-I try to get the C code most simple posible, less code better
+The bootloader manage the framebuffer getting info, so it's passed like an argument to the kernel binary.  
+I try to get the C code most simple possible, "less code better"
 
 
