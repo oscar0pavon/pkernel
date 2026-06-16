@@ -43,7 +43,7 @@ static void console_put_char(char c) {
   if (console_max_cols > 0 && (uint32_t)console_line_char_counter >= console_max_cols) {
     console_newline();
   }
-  serial_putc(c);
+  //serial_putc(c);
   draw_character((unsigned char)c, console_line_char_counter * 8,
                  console_current_line * 16, white, background_color);
   console_line_char_counter++;
