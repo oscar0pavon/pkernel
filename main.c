@@ -12,6 +12,7 @@
 
 #include "gdt.h"
 #include "idt.h"
+#include "lapic.h"
 #include "paging.h"
 
 void hang(){
@@ -58,6 +59,7 @@ void main(BootInfo* boot_info){
 
   init_gdt();
   init_idt();
+  init_lapic();
 
   //setup_memory(boot_info);
 

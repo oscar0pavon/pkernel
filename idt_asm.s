@@ -5,6 +5,7 @@ section '.text' executable
   public exception_handler_13
   public exception_handler_14
   public load_idt_asm
+  public irq_spurious_handler
 
   extrn c_exception_handler
 
@@ -27,6 +28,10 @@ exception_handler_13:
 exception_handler_14:
     push 14         ; Vector number
     jmp exception_common
+
+; Spurious interrupts from LAPIC (vector 0xFF) — no EOI needed, just return
+irq_spurious_handler:
+    iretq
 
 exception_common:
     ; Clean alignment backup pass

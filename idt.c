@@ -17,8 +17,7 @@ struct IdtPointer {
   uint64_t Base;
 } __attribute__((packed));
 
-// Statically reserve 32 slots for core hardware exceptions
-__attribute__((aligned(16))) static struct IdtEntry kernel_idt[32];
+__attribute__((aligned(16))) static struct IdtEntry kernel_idt[256];
 static struct IdtPointer idt_ptr;
 
 
@@ -56,19 +55,19 @@ void c_exception_handler(uint64_t vector, uint64_t error_code, uint64_t rip) {
 }
 
 void init_idt(void) {
-  // Zero out the whole table first
-  for (int i = 0; i < 32; i++) {
+  for (int i = 0; i < 256; i++)
     kernel_idt[i] = (struct IdtEntry){0, 0, 0, 0, 0, 0, 0};
-  }
 
-  // Register our diagnostic traps
-  set_idt_gate(0, (uint64_t)exception_handler_0);
+  // CPU exceptions
+  set_idt_gate(0,  (uint64_t)exception_handler_0);
   set_idt_gate(13, (uint64_t)exception_handler_13);
   set_idt_gate(14, (uint64_t)exception_handler_14);
 
-  idt_ptr.Limit = (sizeof(struct IdtEntry) * 32) - 1;
-  idt_ptr.Base = (uint64_t)&kernel_idt;
+  // LAPIC spurious vector (must be 0xF0–0xFF per spec; we use 0xFF)
+  set_idt_gate(0xFF, (uint64_t)irq_spurious_handler);
 
-  // Load the pointer metadata into the CPU register
+  idt_ptr.Limit = (sizeof(struct IdtEntry) * 256) - 1;
+  idt_ptr.Base  = (uint64_t)&kernel_idt;
+
   load_idt_asm((uint64_t)&idt_ptr);
 }
