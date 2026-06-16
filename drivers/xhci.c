@@ -1115,7 +1115,7 @@ void xhci_keyboard_isr(void) {
 // Walk the PCI capability list, configure MSI to fire on `vector`, then
 // enable the xHCI interrupter and USBCMD.INTE.
 void xhci_enable_msi(uint8_t vector) {
-  printf("=== Enabling xHCI MSI (vector 0x%x) ===\n", vector);
+  printf("=== Enabling xHCI MSI-X (vector 0x%x) ===\n", vector);
 
   volatile uint32_t *pci = xhci_dev.pci_regs;
   if (!pci) { printf("ERROR: xHCI PCI regs not set\n"); return; }
@@ -1127,32 +1127,50 @@ void xhci_enable_msi(uint8_t vector) {
   uint8_t cap_ptr = (uint8_t)(pci[0x34 / 4] & 0xFF);
 
   while (cap_ptr) {
-    if (cap_ptr < 0x40) break;  // guard against corrupt list
+    if (cap_ptr < 0x40) break;
 
-    uint32_t cap_dw  = pci[cap_ptr / 4];
-    uint8_t  cap_id  = cap_dw & 0xFF;
+    uint32_t cap_dw   = pci[cap_ptr / 4];
+    uint8_t  cap_id   = cap_dw & 0xFF;
     uint8_t  cap_next = (cap_dw >> 8) & 0xFF;
 
-    if (cap_id == 0x05) {  // MSI capability
-      uint16_t msg_ctrl = (uint16_t)(cap_dw >> 16);
-      int      is_64bit = (msg_ctrl >> 7) & 1;
+    if (cap_id == 0x11) {  // MSI-X capability
+      // Message Control: bits [31:16] of cap_dw
+      //   [26:16] = Table Size (N-1)   → actual entries = (field)+1
+      //   [30]    = Function Mask
+      //   [31]    = MSI-X Enable
+      uint16_t table_size = ((cap_dw >> 16) & 0x7FF) + 1;
 
-      printf("MSI cap at offset 0x%x (64-bit=%d)\n", cap_ptr, is_64bit);
+      // DWORD at cap+4: Table BIR [2:0] + Table Offset [31:3]
+      uint32_t table_reg = pci[(cap_ptr + 4) / 4];
+      uint8_t  bir       = table_reg & 0x7;
+      uint32_t table_off = table_reg & ~0x7U;
 
-      // Message Address: LAPIC at 0xFEE00000, destination=0 (BSP), physical mode
-      pci[(cap_ptr + 4) / 4] = 0xFEE00000U;
+      printf("MSI-X cap at 0x%x: %d entries, BIR=%d, table_off=0x%x\n",
+             cap_ptr, table_size, bir, table_off);
 
-      if (is_64bit) {
-        pci[(cap_ptr +  8) / 4] = 0;               // upper address = 0
-        pci[(cap_ptr + 12) / 4] = (uint32_t)vector; // message data = vector
+      // Resolve the BAR that holds the MSI-X table.
+      // BAR0+BAR1 form a 64-bit BAR; xhci_dev.base_mmio already combines them.
+      // For bir>0, read the raw BAR from PCI config space.
+      uint64_t bar_base;
+      if (bir == 0) {
+        bar_base = xhci_dev.base_mmio;
       } else {
-        pci[(cap_ptr + 8) / 4] = (uint32_t)vector;
+        uint32_t lo = pci[(0x10 + bir * 4) / 4] & 0xFFFFFFF0U;
+        uint32_t hi = pci[(0x10 + bir * 4 + 4) / 4];
+        bar_base = (uint64_t)lo | ((uint64_t)hi << 32);
       }
 
-      // Enable MSI: set bit 16 of the capability DWORD (bit 0 of Message Control)
-      pci[cap_ptr / 4] |= (1U << 16);
+      // MSI-X table entry 0 (16 bytes: addr_lo, addr_hi, data, vector_ctrl)
+      volatile uint32_t *entry = (volatile uint32_t *)(bar_base + table_off);
+      entry[0] = 0xFEE00000U;      // message address: LAPIC, BSP, physical
+      entry[1] = 0;                 // message address high
+      entry[2] = (uint32_t)vector;  // message data: IDT vector
+      entry[3] = 0;                 // vector control: bit 0=0 → unmasked
 
-      printf("MSI configured: addr=0xFEE00000 data=0x%x\n", vector);
+      // Enable MSI-X (bit 31) and clear Function Mask (bit 30)
+      pci[cap_ptr / 4] = (cap_dw | (1U << 31)) & ~(1U << 30);
+
+      printf("MSI-X configured: addr=0xFEE00000 data=0x%x\n", vector);
 
       // Enable xHCI Interrupter 0: IE=1, clear any pending IP
       xhci_dev.int_0_regs->Iman = 0x3;
@@ -1161,14 +1179,14 @@ void xhci_enable_msi(uint8_t vector) {
       xhci_dev.op_regs->UsbCmd |= (1U << 2);
 
       printf("xHCI interrupter enabled\n");
-      printf("=== MSI ready — call STI to unmask ===\n");
+      printf("=== MSI-X ready — call STI to unmask ===\n");
       return;
     }
 
     cap_ptr = cap_next;
   }
 
-  printf("ERROR: MSI capability not found in PCI config space\n");
+  printf("ERROR: MSI-X capability not found in PCI config space\n");
 }
 
 
