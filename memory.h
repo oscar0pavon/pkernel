@@ -2,6 +2,7 @@
 #define MEMORY_H
 
 #include "types.h"
+#include <stddef.h>
 
 struct MemoryDescriptor {
   uint32_t type;
@@ -18,7 +19,13 @@ typedef struct MemoryMapInfo{
   uint64_t descriptor_size;// Unique hardware stepping size (usually 40 or 48 bytes)
 }MemoryMapInfo;
 
+// Physical page allocator (4 KB pages, identity-mapped)
+void  pmm_init(void *boot_info);
+void *pmm_alloc_page(void);
+void  pmm_free_page(void *page);
 
-void setup_memory(void* info);
+// Heap allocator
+void *kmalloc(size_t size);
+void  kfree(void *ptr);
 
 #endif

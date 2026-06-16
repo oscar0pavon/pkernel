@@ -63,7 +63,7 @@ void main(BootInfo* boot_info){
   init_lapic();
   set_idt_gate(0x21, (uint64_t)irq_xhci_handler);
 
-  //setup_memory(boot_info);
+  pmm_init(boot_info);
 
   init_kernel_paging();
 
