@@ -451,24 +451,24 @@ void xhci_address_device(uint32_t slot_id, uint32_t port) {
   printf("Slot %d is now in Addressed state.\n", slot_id);
   printf("=== STEP 8: COMPLETE ===\n\n");
 
-  xhci_get_descriptor(slot_id, USB_DESC_TYPE_DEVICE, 18);
+  if (!xhci_get_descriptor(slot_id, USB_DESC_TYPE_DEVICE, 18)) return;
 
   // Step 10: if reported EP0 MPS differs from the speed-based default, update it
   uint8_t reported_mps = descriptor_buffer[7];
   if (reported_mps != mps) {
-    xhci_evaluate_context(slot_id, reported_mps);
+    if (!xhci_evaluate_context(slot_id, reported_mps)) return;
   } else {
     printf("=== STEP 10: EP0 MPS confirmed (%d), no update needed ===\n\n", mps);
   }
 
-  xhci_get_config_descriptor(slot_id);
+  if (!xhci_get_config_descriptor(slot_id)) return;
 
   // Step 12: SET_CONFIGURATION + Configure Endpoint
   uint8_t config_val = descriptor_buffer[5];  // bConfigurationValue from Config Descriptor
-  xhci_set_configuration(slot_id, config_val);
+  if (!xhci_set_configuration(slot_id, config_val)) return;
 
-  xhci_get_hid_report_descriptor(slot_id);  // Step 13
-  xhci_arm_keyboard(slot_id);              // Step 14 — queue first TRB and return
+  if (!xhci_get_hid_report_descriptor(slot_id)) return;  // Step 13
+  xhci_arm_keyboard(slot_id);                            // Step 14 — queue first TRB and return
 }
 
 // ============================================================================
@@ -630,7 +630,7 @@ uint32_t xhci_poll_transfer_event(void) {
 // STEP 9: GET_DESCRIPTOR via EP0 control transfer (xHCI spec 4.11.2.2)
 // Submits Setup + Data + Status TRBs on EP0, rings doorbell, reads descriptor.
 // ============================================================================
-void xhci_get_descriptor(uint32_t slot_id, uint8_t desc_type, uint16_t length) {
+int xhci_get_descriptor(uint32_t slot_id, uint8_t desc_type, uint16_t length) {
   printf("=== STEP 9: GET_DESCRIPTOR (type=0x%x, len=%d) ===\n", desc_type, length);
 
   // 8-byte USB SETUP packet (little-endian in a uint64_t):
@@ -668,7 +668,7 @@ void xhci_get_descriptor(uint32_t slot_id, uint8_t desc_type, uint16_t length) {
 
   if (!xhci_poll_transfer_event()) {
     printf("ERROR: GET_DESCRIPTOR failed\n");
-    return;
+    return 0;
   }
 
   // Parse Device Descriptor fields
@@ -692,13 +692,14 @@ void xhci_get_descriptor(uint32_t slot_id, uint8_t desc_type, uint16_t length) {
   printf("  bNumConfigurations: %d\n", bNumConfigurations);
 
   printf("=== STEP 9: COMPLETE ===\n\n");
+  return 1;
 }
 
 // ============================================================================
 // STEP 10: Evaluate Context — update EP0 MPS if device reports a different
 // value than the speed-based default set during Address Device (xHCI 4.3.3).
 // ============================================================================
-void xhci_evaluate_context(uint32_t slot_id, uint8_t new_mps) {
+int xhci_evaluate_context(uint32_t slot_id, uint8_t new_mps) {
   printf("=== STEP 10: Evaluate Context (new EP0 MPS=%d) ===\n", new_mps);
 
   // Reuse input_ctx: only A1 (EP0) is set; slot context is not evaluated
@@ -724,11 +725,12 @@ void xhci_evaluate_context(uint32_t slot_id, uint8_t new_mps) {
 
   if (!xhci_poll_event_ring()) {
     printf("ERROR: Evaluate Context failed\n");
-    return;
+    return 0;
   }
 
   printf("EP0 MPS updated to %d\n", new_mps);
   printf("=== STEP 10: COMPLETE ===\n\n");
+  return 1;
 }
 
 // ============================================================================
@@ -737,7 +739,7 @@ void xhci_evaluate_context(uint32_t slot_id, uint8_t new_mps) {
 //   Phase 2: request wTotalLength bytes for the full descriptor tree
 // Parses Config, Interface, HID, and Endpoint descriptors and prints them.
 // ============================================================================
-void xhci_get_config_descriptor(uint32_t slot_id) {
+int xhci_get_config_descriptor(uint32_t slot_id) {
   printf("=== STEP 11: GET_DESCRIPTOR Configuration ===\n");
 
   // Phase 1: fetch the 9-byte Config Descriptor header to get wTotalLength
@@ -750,7 +752,7 @@ void xhci_get_config_descriptor(uint32_t slot_id) {
 
   if (!ep0_control_in(slot_id, setup9, descriptor_buffer, 9)) {
     printf("ERROR: GET_DESCRIPTOR Config (9 bytes) failed\n");
-    return;
+    return 0;
   }
 
   uint16_t total_length = (uint16_t)descriptor_buffer[2]
@@ -759,7 +761,7 @@ void xhci_get_config_descriptor(uint32_t slot_id) {
 
   if (total_length < 9 || total_length > 255) {
     printf("ERROR: Invalid wTotalLength %d\n", total_length);
-    return;
+    return 0;
   }
 
   // Phase 2: fetch the full descriptor tree
@@ -772,7 +774,7 @@ void xhci_get_config_descriptor(uint32_t slot_id) {
 
   if (!ep0_control_in(slot_id, setup_full, descriptor_buffer, total_length)) {
     printf("ERROR: GET_DESCRIPTOR Config (full) failed\n");
-    return;
+    return 0;
   }
 
   // Parse the descriptor tree starting with the Config Descriptor at offset 0
@@ -831,6 +833,7 @@ void xhci_get_config_descriptor(uint32_t slot_id) {
   }
 
   printf("=== STEP 11: COMPLETE ===\n\n");
+  return 1;
 }
 
 // ============================================================================
@@ -867,14 +870,14 @@ static uint32_t ep0_control_nodata(uint32_t slot_id, uint64_t setup) {
 // 1. Issues USB SET_CONFIGURATION to put device into Configured state.
 // 2. Issues xHCI Configure Endpoint command to register EP1 IN with the HC.
 // ============================================================================
-void xhci_set_configuration(uint32_t slot_id, uint8_t config_val) {
+int xhci_set_configuration(uint32_t slot_id, uint8_t config_val) {
   printf("=== STEP 12: SET_CONFIGURATION (value=%d) ===\n", config_val);
 
   // USB SET_CONFIGURATION: bmRequestType=0x00, bRequest=0x09, wValue=config_val
   uint64_t setup = ((uint64_t)0x09 << 8) | ((uint64_t)config_val << 16);
   if (!ep0_control_nodata(slot_id, setup)) {
     printf("ERROR: SET_CONFIGURATION USB transfer failed\n");
-    return;
+    return 0;
   }
   printf("USB SET_CONFIGURATION accepted\n");
 
@@ -934,12 +937,13 @@ void xhci_set_configuration(uint32_t slot_id, uint8_t config_val) {
 
   if (!xhci_poll_event_ring()) {
     printf("ERROR: Configure Endpoint command failed\n");
-    return;
+    return 0;
   }
 
   printf("EP%d IN configured (MPS=%d, xhci_interval=%d)\n",
          ep1_in_number, ep1_in_mps, xhci_interval);
   printf("=== STEP 12: COMPLETE ===\n\n");
+  return 1;
 }
 
 // ============================================================================
@@ -947,12 +951,12 @@ void xhci_set_configuration(uint32_t slot_id, uint8_t config_val) {
 // bmRequestType=0x81 (D-to-H, Standard, Interface), bRequest=0x06,
 // wValue=0x2200 (type=HID Report, index=0), wIndex=0, wLength=hid_report_len
 // ============================================================================
-void xhci_get_hid_report_descriptor(uint32_t slot_id) {
+int xhci_get_hid_report_descriptor(uint32_t slot_id) {
   printf("=== STEP 13: GET_DESCRIPTOR HID Report (len=%d) ===\n", hid_report_len);
 
   if (hid_report_len == 0) {
     printf("ERROR: hid_report_len not set (Step 11 may have failed)\n");
-    return;
+    return 0;
   }
 
   uint16_t req_len = (hid_report_len > 256) ? 256 : hid_report_len;
@@ -967,7 +971,7 @@ void xhci_get_hid_report_descriptor(uint32_t slot_id) {
 
   if (!ep0_control_in(slot_id, setup, descriptor_buffer, req_len)) {
     printf("ERROR: GET_DESCRIPTOR HID Report failed\n");
-    return;
+    return 0;
   }
 
   // Print raw descriptor bytes, 16 per line
@@ -984,6 +988,7 @@ void xhci_get_hid_report_descriptor(uint32_t slot_id) {
   if (req_len % 16 != 0) printf("\n");
 
   printf("=== STEP 13: COMPLETE ===\n\n");
+  return 1;
 }
 
 // ============================================================================
@@ -1079,6 +1084,8 @@ void xhci_keyboard_isr(void) {
   // Clear USBSTS.EINT (bit 3; write-1-to-clear)
   xhci_dev.op_regs->UsbSts = (1U << 3);
 
+  int got_transfer = 0;
+
   // Drain all pending events from the event ring
   while (1) {
     volatile struct XhciEventTRB *ev = &event_ring[event_ring_dequeue];
@@ -1098,11 +1105,14 @@ void xhci_keyboard_isr(void) {
     if (trb_type == TRB_TYPE_TRANSFER_EVENT &&
         (completion_code == 1 || completion_code == 13)) {
       xhci_process_key_report();
+      got_transfer = 1;
     }
   }
 
-  // Re-arm: queue next TRB so the device continues sending reports
-  xhci_queue_kbd_trb();
+  // Re-arm only after a real HID report arrived; spurious/port-status
+  // events do not consume a TRB so there is nothing to replace.
+  if (got_transfer)
+    xhci_queue_kbd_trb();
 
   // Acknowledge the interrupt to the LAPIC
   lapic_eoi();

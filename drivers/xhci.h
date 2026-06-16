@@ -213,11 +213,11 @@ void xhci_address_device(uint32_t slot_id, uint32_t port);
 
 // USB control transfers
 uint32_t xhci_poll_transfer_event(void);
-void xhci_get_descriptor(uint32_t slot_id, uint8_t desc_type, uint16_t length);
-void xhci_evaluate_context(uint32_t slot_id, uint8_t new_mps);
-void xhci_get_config_descriptor(uint32_t slot_id);
-void xhci_set_configuration(uint32_t slot_id, uint8_t config_val);
-void xhci_get_hid_report_descriptor(uint32_t slot_id);
+int xhci_get_descriptor(uint32_t slot_id, uint8_t desc_type, uint16_t length);
+int xhci_evaluate_context(uint32_t slot_id, uint8_t new_mps);
+int xhci_get_config_descriptor(uint32_t slot_id);
+int xhci_set_configuration(uint32_t slot_id, uint8_t config_val);
+int xhci_get_hid_report_descriptor(uint32_t slot_id);
 void xhci_arm_keyboard(uint32_t slot_id);
 void xhci_keyboard_isr(void);
 void xhci_enable_msi(uint8_t vector);
