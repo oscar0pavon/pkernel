@@ -17,7 +17,7 @@
 #include "drivers/xhci.h"
 
 void hang(void) {
-  while (1) { __asm__ volatile("hlt"); }
+  while (1) { asm volatile("hlt"); }
 }
 
 byte read_pit_count(void){
@@ -67,20 +67,18 @@ void main(BootInfo* boot_info){
 
   init_kernel_paging();
 
-  //test_identity_mapping();
-
-
-  //printf("XSDT address: %x\n",xsdt_address);
 
 	XSDT = (struct XSDT_t*)xsdt_address;
 	parse_XSDT();
 
+  xhci_enable_msi(0x21);     // configure PCI MSI + enable xHCI interrupter
+  asm volatile("sti");   // unmask interrupts — keyboard IRQs can now fire
 
   printf("--You are in owner space now--\n");
+  //main loop
+  while(1){
 
-  xhci_enable_msi(0x21);     // configure PCI MSI + enable xHCI interrupter
-  __asm__ volatile("sti");   // unmask interrupts — keyboard IRQs can now fire
-
-  hang();
+    asm volatile("hlt");
+  }
 
 }

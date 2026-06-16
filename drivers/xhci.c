@@ -1179,7 +1179,7 @@ void xhci_enable_msi(uint8_t vector) {
       xhci_dev.op_regs->UsbCmd |= (1U << 2);
 
       printf("xHCI interrupter enabled\n");
-      printf("=== MSI-X ready — call STI to unmask ===\n");
+      printf("=== MSI-X ready - call STI to unmask ===\n");
       return;
     }
 
