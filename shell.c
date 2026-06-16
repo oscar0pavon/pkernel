@@ -2,6 +2,7 @@
 #include "input.h"
 #include "console.h"
 #include "memory.h"
+#include "lapic_timer.h"
 
 #define LINE_MAX 256
 
@@ -14,7 +15,15 @@ static int str_eq(const char *a, const char *b) {
 }
 
 static void cmd_help(void) {
-    printf("commands: help  clear  mem\n");
+    printf("commands: help  clear  mem  uptime\n");
+}
+
+static void cmd_uptime(void) {
+    uint64_t ms = lapic_timer_uptime_ms();
+    printf("%d.%d s (%d ticks)\n",
+           (uint32_t)(ms / 1000),
+           (uint32_t)(ms % 1000),
+           (uint32_t)lapic_timer_get_ticks());
 }
 
 static void cmd_mem(void) {
@@ -34,9 +43,10 @@ static void dispatch(void) {
     if (line_len == 0) return;
     line[line_len] = '\0';
 
-    if      (str_eq(line, "help"))  cmd_help();
-    else if (str_eq(line, "clear")) console_clear();
-    else if (str_eq(line, "mem"))   cmd_mem();
+    if      (str_eq(line, "help"))   cmd_help();
+    else if (str_eq(line, "clear"))  console_clear();
+    else if (str_eq(line, "mem"))    cmd_mem();
+    else if (str_eq(line, "uptime")) cmd_uptime();
     else    printf("unknown: %s\n", line);
 }
 

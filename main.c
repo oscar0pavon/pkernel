@@ -16,6 +16,7 @@
 #include "paging.h"
 #include "drivers/xhci.h"
 #include "drivers/serial.h"
+#include "lapic_timer.h"
 #include "shell.h"
 
 void hang(void) {
@@ -68,6 +69,7 @@ void main(BootInfo* boot_info){
   init_gdt();
   init_idt();
   init_lapic();
+  set_idt_gate(0x20, (uint64_t)irq_lapic_timer_handler);
   set_idt_gate(0x21, (uint64_t)irq_xhci_handler);
 
   pmm_init(boot_info);
@@ -77,6 +79,8 @@ void main(BootInfo* boot_info){
 
 	XSDT = (struct XSDT_t*)xsdt_address;
 	parse_XSDT();
+
+  lapic_timer_init(100);     // calibrate + start periodic timer at 100 Hz
 
   xhci_enable_msi(0x21);     // configure PCI MSI + enable xHCI interrupter
   asm volatile("sti");   // unmask interrupts — keyboard IRQs can now fire

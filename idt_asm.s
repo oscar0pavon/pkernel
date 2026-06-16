@@ -7,9 +7,11 @@ section '.text' executable
   public load_idt_asm
   public irq_spurious_handler
   public irq_xhci_handler
+  public irq_lapic_timer_handler
 
   extrn c_exception_handler
   extrn xhci_keyboard_isr
+  extrn lapic_timer_isr
 
 load_idt_asm:
     lidt [rdi]
@@ -33,6 +35,34 @@ exception_handler_14:
 
 ; Spurious interrupts from LAPIC (vector 0xFF) — no EOI needed, just return
 irq_spurious_handler:
+    iretq
+
+; LAPIC timer periodic interrupt handler (vector 0x20)
+irq_lapic_timer_handler:
+    push rax
+    push rcx
+    push rdx
+    push rsi
+    push rdi
+    push r8
+    push r9
+    push r10
+    push r11
+    push rbp
+    mov  rbp, rsp
+    and  rsp, -16
+    call lapic_timer_isr
+    mov  rsp, rbp
+    pop  rbp
+    pop  r11
+    pop  r10
+    pop  r9
+    pop  r8
+    pop  rdi
+    pop  rsi
+    pop  rdx
+    pop  rcx
+    pop  rax
     iretq
 
 ; xHCI MSI interrupt handler (vector 0x21)
