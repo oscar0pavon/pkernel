@@ -3,6 +3,7 @@
 #include "console.h"
 #include "memory.h"
 #include "lapic_timer.h"
+#include "sched.h"
 
 #define LINE_MAX 256
 
@@ -15,7 +16,17 @@ static int str_eq(const char *a, const char *b) {
 }
 
 static void cmd_help(void) {
-    printf("commands: help  clear  mem  uptime\n");
+    printf("commands: help  clear  mem  uptime  tasks\n");
+}
+
+static void cmd_tasks(void) {
+    Task *head = sched_task_list();
+    Task *t = head;
+    do {
+        printf("  [%d] %s  switches=%d\n",
+               t->tid, t->name, (uint32_t)t->switches);
+        t = t->next;
+    } while (t != head);
 }
 
 static void cmd_uptime(void) {
@@ -47,6 +58,7 @@ static void dispatch(void) {
     else if (str_eq(line, "clear"))  console_clear();
     else if (str_eq(line, "mem"))    cmd_mem();
     else if (str_eq(line, "uptime")) cmd_uptime();
+    else if (str_eq(line, "tasks"))  cmd_tasks();
     else    printf("unknown: %s\n", line);
 }
 

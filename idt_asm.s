@@ -8,10 +8,12 @@ section '.text' executable
   public irq_spurious_handler
   public irq_xhci_handler
   public irq_lapic_timer_handler
+  public irq_sched_handler
 
   extrn c_exception_handler
   extrn xhci_keyboard_isr
   extrn lapic_timer_isr
+  extrn sched_tick
 
 load_idt_asm:
     lidt [rdi]
@@ -53,6 +55,48 @@ irq_lapic_timer_handler:
     and  rsp, -16
     call lapic_timer_isr
     mov  rsp, rbp
+    pop  rbp
+    pop  r11
+    pop  r10
+    pop  r9
+    pop  r8
+    pop  rdi
+    pop  rsi
+    pop  rdx
+    pop  rcx
+    pop  rax
+    iretq
+
+; Preemptive scheduler handler (vector 0x20)
+; Saves all 15 registers, passes saved-rsp to sched_tick(), switches to the
+; returned rsp, then restores registers and iretqs into the next task.
+; rdi is set to the frame pointer BEFORE and-aligning rsp, so sched_tick
+; always receives the correct pointer to the r15 slot.
+irq_sched_handler:
+    push rax
+    push rcx
+    push rdx
+    push rsi
+    push rdi
+    push r8
+    push r9
+    push r10
+    push r11
+    push rbp
+    push rbx
+    push r12
+    push r13
+    push r14
+    push r15
+    mov  rdi, rsp           ; arg: pointer to saved-register frame (r15 slot)
+    and  rsp, -16           ; align for C call (rdi already captured frame ptr)
+    call sched_tick         ; returns new task's rsp in rax
+    mov  rsp, rax           ; switch to new task's saved-register frame
+    pop  r15
+    pop  r14
+    pop  r13
+    pop  r12
+    pop  rbx
     pop  rbp
     pop  r11
     pop  r10
