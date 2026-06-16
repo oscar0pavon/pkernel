@@ -190,6 +190,9 @@ extern XHCIDevice xhci_dev;
 // FUNCTION DECLARATIONS
 // ============================================================================
 
+// Debug toggle (0=off, 1=on)
+void xhci_set_debug(int enabled);
+
 // Core initialization functions
 void init_xhci_driver(void);
 void xhci_reset_controller(void);
