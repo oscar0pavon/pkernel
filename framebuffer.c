@@ -1,5 +1,6 @@
 #include "framebuffer.h"
 
+#include "drivers/serial.h"
 
 #include "font.h"
 #include "library.h"
@@ -83,6 +84,9 @@ void clear(){
 void draw_character(unsigned char character, int x, int y,
 		int foreground, int background)
 {
+
+  serial_putc(character);
+
 	int cx,cy;
 	int mask[8]={128,64,32,16,8,4,2,1};
 	unsigned char *glyph=font+(int)character*16;

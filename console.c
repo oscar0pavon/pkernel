@@ -2,6 +2,7 @@
 #include "library.h"
 #include "framebuffer.h"
 
+#include "drivers/serial.h"
 
 #include <stdint.h>
 #include <stdarg.h>
@@ -29,6 +30,7 @@ void console_init(void) {
 }
 
 static void console_newline(void) {
+  serial_putc('\n');
   console_current_line++;
   console_line_char_counter = 0;
   if (console_max_lines > 0 && (uint32_t)console_current_line >= console_max_lines) {

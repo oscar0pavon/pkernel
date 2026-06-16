@@ -15,6 +15,7 @@
 #include "lapic.h"
 #include "paging.h"
 #include "drivers/xhci.h"
+#include "drivers/serial.h"
 
 void hang(void) {
   while (1) { asm volatile("hlt"); }
@@ -53,9 +54,14 @@ void run_counter() {
 }
 
 void main(BootInfo* boot_info){
+
+  serial_init();
+
 	init_frambuffer(&boot_info->frame_buffer);	
+
   uint64_t xsdt_address = boot_info->xsdt_address;
 
+  
 	printf("pkernel\n");
 
   init_gdt();

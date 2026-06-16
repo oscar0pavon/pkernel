@@ -8,4 +8,5 @@ qemu-system-x86_64 -enable-kvm \
   -device qemu-xhci,id=xhci \
   -device usb-kbd,bus=xhci.0 \
   -m 256M \
-  -display gtk,show-tabs=off,show-menubar=off 
+  -display gtk,show-tabs=off,show-menubar=off \
+  -serial stdio
