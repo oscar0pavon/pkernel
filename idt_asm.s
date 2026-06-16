@@ -6,8 +6,10 @@ section '.text' executable
   public exception_handler_14
   public load_idt_asm
   public irq_spurious_handler
+  public irq_xhci_handler
 
   extrn c_exception_handler
+  extrn xhci_keyboard_isr
 
 load_idt_asm:
     lidt [rdi]
@@ -31,6 +33,38 @@ exception_handler_14:
 
 ; Spurious interrupts from LAPIC (vector 0xFF) — no EOI needed, just return
 irq_spurious_handler:
+    iretq
+
+; xHCI MSI interrupt handler (vector 0x21)
+; Saves all caller-saved registers (System V AMD64 ABI), aligns the stack to
+; 16 bytes before the call (the interrupt frame + 10 pushes may or may not
+; already be aligned depending on where the CPU was when the IRQ fired),
+; calls the C handler, then unwinds.
+irq_xhci_handler:
+    push rax
+    push rcx
+    push rdx
+    push rsi
+    push rdi
+    push r8
+    push r9
+    push r10
+    push r11
+    push rbp
+    mov  rbp, rsp           ; save RSP before alignment
+    and  rsp, -16           ; force 16-byte alignment for call
+    call xhci_keyboard_isr
+    mov  rsp, rbp           ; restore unaligned RSP
+    pop  rbp
+    pop  r11
+    pop  r10
+    pop  r9
+    pop  r8
+    pop  rdi
+    pop  rsi
+    pop  rdx
+    pop  rcx
+    pop  rax
     iretq
 
 exception_common:

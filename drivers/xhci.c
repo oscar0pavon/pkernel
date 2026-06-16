@@ -1,5 +1,6 @@
 #include "xhci.h"
 #include "../console.h"
+#include "../lapic.h"
 #include <stdint.h>
 #include <string.h>
 
@@ -52,6 +53,10 @@ uint16_t ep1_in_mps      = 8;
 uint8_t  ep1_in_interval = 10;
 uint8_t  ep1_in_number   = 1;
 uint16_t hid_report_len  = 0;
+
+// Saved by xhci_arm_keyboard(), consumed by xhci_keyboard_isr()
+static uint32_t kbd_slot_id  = 0;
+static uint32_t kbd_db_target = 0;
 
 // ============================================================================
 // DEBUG: Print status register bits
@@ -463,7 +468,7 @@ void xhci_address_device(uint32_t slot_id, uint32_t port) {
   xhci_set_configuration(slot_id, config_val);
 
   xhci_get_hid_report_descriptor(slot_id);  // Step 13
-  xhci_poll_keyboard(slot_id);              // Step 14 — does not return
+  xhci_arm_keyboard(slot_id);              // Step 14 — queue first TRB and return
 }
 
 // ============================================================================
@@ -982,19 +987,15 @@ void xhci_get_hid_report_descriptor(uint32_t slot_id) {
 }
 
 // ============================================================================
-// STEP 14: Interrupt IN keyboard polling (xHCI spec 4.11.3)
-// Queues Normal TRBs on ep1in_ring, rings EP1 IN doorbell, and decodes
-// incoming 8-byte HID Boot Protocol reports into ASCII characters.
+// STEP 14: Interrupt-driven keyboard via xHCI MSI
 // ============================================================================
 
 // USB HID Usage Page 0x07 keycode → ASCII (indices 0x00–0x38)
 static const char kbd_ascii[2][57] = {
-  // unshifted
   { 0,   0,   0,   0,   'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l',
     'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z',
     '1', '2', '3', '4', '5', '6', '7', '8', '9', '0',
     '\n', 0, '\b', '\t', ' ', '-', '=', '[', ']', '\\', 0, ';', '\'', '`', ',', '.', '/' },
-  // shifted
   { 0,   0,   0,   0,   'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L',
     'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z',
     '!', '@', '#', '$', '%', '^', '&', '*', '(', ')',
@@ -1002,90 +1003,172 @@ static const char kbd_ascii[2][57] = {
 };
 
 static volatile uint8_t kbd_report[8] = {0};
+static uint8_t kbd_prev_kc[6] = {0};
 
-// Spin on the event ring until a Transfer Event arrives — no timeout so we
-// do not spam error messages during the 10 ms keyboard polling interval.
-static uint32_t xhci_wait_ep1in_event(void) {
-  while (1) {
-    volatile struct XhciEventTRB *ev = &event_ring[event_ring_dequeue];
-    if ((ev->Control & 1) == event_ring_cycle) {
-      uint32_t trb_type        = (ev->Control >> 10) & 0x3F;
-      uint32_t completion_code = (ev->Status  >> 24) & 0xFF;
+// Decode one 8-byte HID Boot Protocol report and print changed keys.
+static void xhci_process_key_report(void) {
+  uint8_t modifier = kbd_report[0];
+  uint8_t shifted  = (modifier & 0x22) ? 1 : 0;  // bit1=LShift, bit5=RShift
 
-      event_ring_dequeue++;
-      if (event_ring_dequeue >= 256) {
-        event_ring_dequeue = 0;
-        event_ring_cycle ^= 1;
+  for (int i = 2; i < 8; i++) {
+    uint8_t kc = kbd_report[i];
+    if (kc == 0) continue;
+
+    int held = 0;
+    for (int j = 0; j < 6; j++) if (kbd_prev_kc[j] == kc) { held = 1; break; }
+    if (held) continue;
+
+    if (kc < 57) {
+      char c = kbd_ascii[shifted][kc];
+      if (c == '\n') {
+        printf("\n");
+      } else if (c == '\b') {
+        printf("<BS>");
+      } else if (c >= ' ' && c <= '~') {
+        char s[2] = {c, '\0'};
+        printf("%s", s);
       }
-      xhci_dev.int_0_regs->Erdp =
-        (uint64_t)&event_ring[event_ring_dequeue] | (1U << 3);
-
-      if (trb_type == TRB_TYPE_TRANSFER_EVENT)
-        return (completion_code == 1 || completion_code == 13) ? 1 : 0;
-      // consume non-transfer events (port status change, etc.) and keep waiting
+    } else if (kc >= 0x3A && kc <= 0x45) {
+      printf("<F%d>", kc - 0x39);
     }
-    __asm__("pause");
   }
+
+  for (int i = 0; i < 6; i++) kbd_prev_kc[i] = kbd_report[i + 2];
 }
 
-void xhci_poll_keyboard(uint32_t slot_id) {
-  printf("=== STEP 14: Keyboard polling (slot %d, EP%d IN, MPS=%d) ===\n",
+// Queue one Normal TRB on EP1 IN and ring the doorbell.
+// Called once from xhci_arm_keyboard() to prime the pipeline, then again
+// at the end of every xhci_keyboard_isr() to re-arm for the next report.
+static void xhci_queue_kbd_trb(void) {
+  uint16_t report_sz = ep1_in_mps ? ep1_in_mps : 8;
+
+  volatile struct XhciTRB *trb = &ep1in_ring[ep1in_enqueue];
+  trb->Parameter = (uint64_t)kbd_report;
+  trb->Status    = report_sz;
+  // IOC=1 (interrupt on completion), ISP=1 (interrupt on short packet)
+  trb->Control   = (TRB_TYPE_NORMAL << 10) | (1U << 5) | (1U << 2) | ep1in_cycle;
+
+  ep1in_enqueue++;
+  if (ep1in_enqueue >= 255) {
+    ep1in_ring[255].Control = (TRB_TYPE_LINK << 10) | (1U << 1) | ep1in_cycle;
+    ep1in_cycle ^= 1;
+    ep1in_enqueue = 0;
+  }
+
+  xhci_dev.doorbell_regs[kbd_slot_id] = kbd_db_target;
+}
+
+// Queue the first TRB and return. MSI will fire when the device sends a report.
+void xhci_arm_keyboard(uint32_t slot_id) {
+  printf("=== STEP 14: Arming keyboard interrupt (slot %d, EP%d IN, MPS=%d) ===\n",
          slot_id, ep1_in_number, ep1_in_mps);
 
-  uint32_t db_target  = (uint32_t)ep1_in_number * 2 + 1;
-  uint16_t report_sz  = ep1_in_mps ? ep1_in_mps : 8;
-  uint8_t  prev_kc[6] = {0};
+  kbd_slot_id   = slot_id;
+  kbd_db_target = (uint32_t)ep1_in_number * 2 + 1;
 
+  xhci_queue_kbd_trb();
+
+  printf("=== STEP 14: Keyboard armed — waiting for MSI ===\n");
+}
+
+// C-level ISR called from irq_xhci_handler (idt_asm.s).
+// Runs with interrupts disabled (interrupt gate clears RFLAGS.IF on entry).
+void xhci_keyboard_isr(void) {
+  // Clear IMAN.IP (bit 0 = Interrupt Pending; write-1-to-clear)
+  xhci_dev.int_0_regs->Iman |= 1;
+  // Clear USBSTS.EINT (bit 3; write-1-to-clear)
+  xhci_dev.op_regs->UsbSts = (1U << 3);
+
+  // Drain all pending events from the event ring
   while (1) {
-    // Queue one Normal TRB pointing at kbd_report
-    volatile struct XhciTRB *trb = &ep1in_ring[ep1in_enqueue];
-    trb->Parameter = (uint64_t)kbd_report;
-    trb->Status    = report_sz;
-    // IOC=1 (interrupt on completion), ISP=1 (interrupt on short packet)
-    trb->Control   = (TRB_TYPE_NORMAL << 10) | (1U << 5) | (1U << 2) | ep1in_cycle;
-    ep1in_enqueue++;
-    if (ep1in_enqueue >= 255) {
-      ep1in_ring[255].Control =
-        (TRB_TYPE_LINK << 10) | (1U << 1) | ep1in_cycle;
-      ep1in_cycle ^= 1;
-      ep1in_enqueue = 0;
+    volatile struct XhciEventTRB *ev = &event_ring[event_ring_dequeue];
+    if ((ev->Control & 1) != event_ring_cycle) break;
+
+    uint32_t trb_type        = (ev->Control >> 10) & 0x3F;
+    uint32_t completion_code = (ev->Status  >> 24) & 0xFF;
+
+    event_ring_dequeue++;
+    if (event_ring_dequeue >= 256) {
+      event_ring_dequeue = 0;
+      event_ring_cycle ^= 1;
     }
+    xhci_dev.int_0_regs->Erdp =
+      (uint64_t)&event_ring[event_ring_dequeue] | (1U << 3);
 
-    xhci_dev.doorbell_regs[slot_id] = db_target;
-
-    if (!xhci_wait_ep1in_event()) continue;
-
-    // Boot Protocol report: [modifier][reserved][kc0]..[kc5]
-    uint8_t modifier = kbd_report[0];
-    uint8_t shifted  = (modifier & 0x22) ? 1 : 0;  // bit1=LShift, bit5=RShift
-
-    for (int i = 2; i < 8; i++) {
-      uint8_t kc = kbd_report[i];
-      if (kc == 0) continue;
-
-      // Skip keys still held from the previous report (no software repeat)
-      int held = 0;
-      for (int j = 0; j < 6; j++) if (prev_kc[j] == kc) { held = 1; break; }
-      if (held) continue;
-
-      // Translate to ASCII
-      if (kc < 57) {
-        char c = kbd_ascii[shifted][kc];
-        if (c == '\n') {
-          printf("\n");
-        } else if (c == '\b') {
-          printf("<BS>");
-        } else if (c >= ' ' && c <= '~') {
-          char s[2] = {c, '\0'};
-          printf("%s", s);
-        }
-      } else if (kc >= 0x3A && kc <= 0x45) {
-        printf("<F%d>", kc - 0x39);
-      }
+    if (trb_type == TRB_TYPE_TRANSFER_EVENT &&
+        (completion_code == 1 || completion_code == 13)) {
+      xhci_process_key_report();
     }
-
-    for (int i = 0; i < 6; i++) prev_kc[i] = kbd_report[i + 2];
   }
+
+  // Re-arm: queue next TRB so the device continues sending reports
+  xhci_queue_kbd_trb();
+
+  // Acknowledge the interrupt to the LAPIC
+  lapic_eoi();
+}
+
+// ============================================================================
+// MSI CONFIGURATION (call after xhci_arm_keyboard, before STI)
+// ============================================================================
+
+// Walk the PCI capability list, configure MSI to fire on `vector`, then
+// enable the xHCI interrupter and USBCMD.INTE.
+void xhci_enable_msi(uint8_t vector) {
+  printf("=== Enabling xHCI MSI (vector 0x%x) ===\n", vector);
+
+  volatile uint32_t *pci = xhci_dev.pci_regs;
+  if (!pci) { printf("ERROR: xHCI PCI regs not set\n"); return; }
+
+  // Enable Memory Space (bit 1) + Bus Mastering (bit 2) in Command register
+  pci[1] |= (1U << 1) | (1U << 2);
+
+  // Capabilities Pointer is at PCI config offset 0x34 (DWORD index 13), low byte
+  uint8_t cap_ptr = (uint8_t)(pci[0x34 / 4] & 0xFF);
+
+  while (cap_ptr) {
+    if (cap_ptr < 0x40) break;  // guard against corrupt list
+
+    uint32_t cap_dw  = pci[cap_ptr / 4];
+    uint8_t  cap_id  = cap_dw & 0xFF;
+    uint8_t  cap_next = (cap_dw >> 8) & 0xFF;
+
+    if (cap_id == 0x05) {  // MSI capability
+      uint16_t msg_ctrl = (uint16_t)(cap_dw >> 16);
+      int      is_64bit = (msg_ctrl >> 7) & 1;
+
+      printf("MSI cap at offset 0x%x (64-bit=%d)\n", cap_ptr, is_64bit);
+
+      // Message Address: LAPIC at 0xFEE00000, destination=0 (BSP), physical mode
+      pci[(cap_ptr + 4) / 4] = 0xFEE00000U;
+
+      if (is_64bit) {
+        pci[(cap_ptr +  8) / 4] = 0;               // upper address = 0
+        pci[(cap_ptr + 12) / 4] = (uint32_t)vector; // message data = vector
+      } else {
+        pci[(cap_ptr + 8) / 4] = (uint32_t)vector;
+      }
+
+      // Enable MSI: set bit 16 of the capability DWORD (bit 0 of Message Control)
+      pci[cap_ptr / 4] |= (1U << 16);
+
+      printf("MSI configured: addr=0xFEE00000 data=0x%x\n", vector);
+
+      // Enable xHCI Interrupter 0: IE=1, clear any pending IP
+      xhci_dev.int_0_regs->Iman = 0x3;
+
+      // Enable host controller interrupt generation: USBCMD.INTE (bit 2)
+      xhci_dev.op_regs->UsbCmd |= (1U << 2);
+
+      printf("xHCI interrupter enabled\n");
+      printf("=== MSI ready — call STI to unmask ===\n");
+      return;
+    }
+
+    cap_ptr = cap_next;
+  }
+
+  printf("ERROR: MSI capability not found in PCI config space\n");
 }
 
 

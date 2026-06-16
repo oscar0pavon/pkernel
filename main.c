@@ -14,9 +14,10 @@
 #include "idt.h"
 #include "lapic.h"
 #include "paging.h"
+#include "drivers/xhci.h"
 
-void hang(){
-	while(1){};
+void hang(void) {
+  while (1) { __asm__ volatile("hlt"); }
 }
 
 byte read_pit_count(void){
@@ -60,6 +61,7 @@ void main(BootInfo* boot_info){
   init_gdt();
   init_idt();
   init_lapic();
+  set_idt_gate(0x21, (uint64_t)irq_xhci_handler);
 
   //setup_memory(boot_info);
 
@@ -74,8 +76,11 @@ void main(BootInfo* boot_info){
 	parse_XSDT();
 
 
-	printf("--You are in owner space now--\n");
+  printf("--You are in owner space now--\n");
 
-	hang();	
+  xhci_enable_msi(0x21);     // configure PCI MSI + enable xHCI interrupter
+  __asm__ volatile("sti");   // unmask interrupts — keyboard IRQs can now fire
+
+  hang();
 
 }

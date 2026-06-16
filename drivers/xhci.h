@@ -218,7 +218,9 @@ void xhci_evaluate_context(uint32_t slot_id, uint8_t new_mps);
 void xhci_get_config_descriptor(uint32_t slot_id);
 void xhci_set_configuration(uint32_t slot_id, uint8_t config_val);
 void xhci_get_hid_report_descriptor(uint32_t slot_id);
-void xhci_poll_keyboard(uint32_t slot_id);
+void xhci_arm_keyboard(uint32_t slot_id);
+void xhci_keyboard_isr(void);
+void xhci_enable_msi(uint8_t vector);
 
 extern volatile uint8_t descriptor_buffer[256];
 extern volatile struct XhciTRB ep1in_ring[256];
