@@ -16,6 +16,7 @@
 #include "paging.h"
 #include "drivers/xhci.h"
 #include "drivers/serial.h"
+#include "shell.h"
 
 void hang(void) {
   while (1) { asm volatile("hlt"); }
@@ -81,10 +82,6 @@ void main(BootInfo* boot_info){
   asm volatile("sti");   // unmask interrupts — keyboard IRQs can now fire
 
   printf("--You are in owner space now--\n");
-  //main loop
-  while(1){
-
-    asm volatile("hlt");
-  }
+  shell_run();
 
 }

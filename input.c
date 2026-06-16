@@ -1,28 +1,26 @@
 #include "input.h"
 
-#include "console.h"
+#define BUF_SIZE 256
 
-#include "drivers/ps2_keyboard.h"
+static volatile char buf[BUF_SIZE];
+static volatile int  head = 0;  // write index (ISR)
+static volatile int  tail = 0;  // read index (shell)
 
-void input_loop(){
-	
-	print_in_line_number(20,"demand# ");
-	while(1){
+void input_putc(char c) {
+    int next = (head + 1) % BUF_SIZE;
+    if (next != tail) {
+        buf[head] = c;
+        head = next;
+    }
+}
 
-		char restul = 'a';
-		char buff[2];
-		buff[0] = '\0';
-		buff[1] = '\0';
+char input_getc(void) {
+    if (tail == head) return '\0';
+    char c = buf[tail];
+    tail = (tail + 1) % BUF_SIZE;
+    return c;
+}
 
-		
-		char input = ps2_keyboard_get_input();
-		buff[0] = input;
-		if(input != '\0'){
-			print_in_line_buffer_number(20,buff);
-		}
-
-		//DEBUG character
-		//print_in_line_number(19, buff);
-	}
-	//not got here
+int input_available(void) {
+    return head != tail;
 }

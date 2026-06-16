@@ -1,5 +1,6 @@
 #include "xhci.h"
 #include "../console.h"
+#include "../input.h"
 #include "../lapic.h"
 #include <stdint.h>
 #include <string.h>
@@ -1010,7 +1011,7 @@ static const char kbd_ascii[2][57] = {
 static volatile uint8_t kbd_report[8] = {0};
 static uint8_t kbd_prev_kc[6] = {0};
 
-// Decode one 8-byte HID Boot Protocol report and print changed keys.
+// Decode one 8-byte HID Boot Protocol report and enqueue changed keys.
 static void xhci_process_key_report(void) {
   uint8_t modifier = kbd_report[0];
   uint8_t shifted  = (modifier & 0x22) ? 1 : 0;  // bit1=LShift, bit5=RShift
@@ -1025,16 +1026,8 @@ static void xhci_process_key_report(void) {
 
     if (kc < 57) {
       char c = kbd_ascii[shifted][kc];
-      if (c == '\n') {
-        printf("\n");
-      } else if (c == '\b') {
-        printf("<BS>");
-      } else if (c >= ' ' && c <= '~') {
-        char s[2] = {c, '\0'};
-        printf("%s", s);
-      }
-    } else if (kc >= 0x3A && kc <= 0x45) {
-      printf("<F%d>", kc - 0x39);
+      if (c != 0)
+        input_putc(c);
     }
   }
 

@@ -20,6 +20,8 @@ void print_byte_hex(uint8_t number);
 void printf(const char* format, ...);
 
 void clear_current_line();
+void console_backspace(void);
+void console_clear(void);
 
 u32 get_background_color();
 

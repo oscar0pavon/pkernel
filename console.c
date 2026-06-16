@@ -134,6 +134,22 @@ void print(const char* format){
 
 }
 
+void console_backspace(void) {
+  if (console_line_char_counter <= 0) return;
+  console_line_char_counter--;
+  draw_character(' ', console_line_char_counter * 8,
+                 console_current_line * 16, white, background_color);
+  serial_putc('\b');
+  serial_putc(' ');
+  serial_putc('\b');
+}
+
+void console_clear(void) {
+  clear();
+  console_current_line    = 0;
+  console_line_char_counter = 0;
+}
+
 void clear_current_line(){
   u16 save_char_counter = console_line_char_counter;
   console_line_char_counter=0;
