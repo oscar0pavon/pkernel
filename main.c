@@ -93,6 +93,9 @@ void main(BootInfo* boot_info){
   asm volatile("sti");   // unmask interrupts — keyboard IRQs can now fire
 
   printf("--You are in owner space now--\n");
-  shell_run();
+
+  task_create("shell", shell_run);
+
+  hang();
 
 }
