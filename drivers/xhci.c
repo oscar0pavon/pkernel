@@ -1057,7 +1057,7 @@ void xhci_enable_msi(uint8_t vector) {
 // MAIN INITIALIZATION ENTRY POINT
 // ============================================================================
 void init_xhci_driver(void) {
-  XDBG("MMIO Base: 0x%lx\n", xhci_dev.base_mmio);
+  printf("xHCI Driver - MMIO Base: 0x%lx\n", xhci_dev.base_mmio);
 
   xhci_dev.cap_regs = (XhciCapabilityRegs *)xhci_dev.base_mmio;
   uint64_t op_base = xhci_dev.base_mmio + xhci_dev.cap_regs->CapLength;

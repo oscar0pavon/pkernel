@@ -60,9 +60,6 @@ void setup_pci() {
         d->subclass == PCI_SUBCLASS_USB_CONTROLLER &&
         d->prog_if == PCI_INTERFACE_XHCI) {
 
-      printf("xHCI Device Found at Bus %d, Slot %d, Func %d!\n",
-             d->bus, d->device, d->function);
-
       xhci_dev.pci_regs = d->config_space;
 
       uint32_t bar0 = d->config_space[4];
@@ -72,9 +69,6 @@ void setup_pci() {
       if ((bar0 & 0x06) == 0x04) {
         xhci_dev.base_mmio |= ((uint64_t)bar1 << 32);
       }
-
-      printf("xHCI Controller Internal Registers live at: %lx\n",
-             xhci_dev.base_mmio);
 
       init_xhci_driver();
     }
