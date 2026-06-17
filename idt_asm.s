@@ -1,5 +1,38 @@
 format ELF64
 
+macro CALL_ALIGNED c_function {
+    mov  rbp, rsp           ; Save RSP before alignment
+    and  rsp, -16           ; Force 16-byte alignment
+    call c_function         ; Execute the parameter passed to the macro
+    mov  rsp, rbp           ; Restore unaligned RSP
+}
+
+macro PUSH_IRQ {
+    push rax
+    push rcx
+    push rdx
+    push rsi
+    push rdi
+    push r8
+    push r9
+    push r10
+    push r11
+    push rbp
+}
+
+macro POP_IRQ {
+    pop  rbp
+    pop  r11
+    pop  r10
+    pop  r9
+    pop  r8
+    pop  rdi
+    pop  rsi
+    pop  rdx
+    pop  rcx
+    pop  rax
+}
+
 section '.text' executable
   public exception_handler_0
   public exception_handler_13
@@ -39,32 +72,23 @@ exception_handler_14:
 irq_spurious_handler:
     iretq
 
+
+; xHCI MSI interrupt handler (vector 0x21)
+; Saves all caller-saved registers (System V AMD64 ABI), aligns the stack to
+; 16 bytes before the call (the interrupt frame + 10 pushes may or may not
+; already be aligned depending on where the CPU was when the IRQ fired),
+; calls the C handler, then unwinds.
+irq_xhci_handler:
+    PUSH_IRQ 
+    CALL_ALIGNED xhci_keyboard_isr 
+    POP_IRQ
+    iretq
+
 ; LAPIC timer periodic interrupt handler (vector 0x20)
 irq_lapic_timer_handler:
-    push rax
-    push rcx
-    push rdx
-    push rsi
-    push rdi
-    push r8
-    push r9
-    push r10
-    push r11
-    push rbp
-    mov  rbp, rsp
-    and  rsp, -16
-    call lapic_timer_isr
-    mov  rsp, rbp
-    pop  rbp
-    pop  r11
-    pop  r10
-    pop  r9
-    pop  r8
-    pop  rdi
-    pop  rsi
-    pop  rdx
-    pop  rcx
-    pop  rax
+    PUSH_IRQ
+    CALL_ALIGNED lapic_timer_isr
+    POP_IRQ
     iretq
 
 ; Preemptive scheduler handler (vector 0x20)
@@ -109,37 +133,6 @@ irq_sched_handler:
     pop  rax
     iretq
 
-; xHCI MSI interrupt handler (vector 0x21)
-; Saves all caller-saved registers (System V AMD64 ABI), aligns the stack to
-; 16 bytes before the call (the interrupt frame + 10 pushes may or may not
-; already be aligned depending on where the CPU was when the IRQ fired),
-; calls the C handler, then unwinds.
-irq_xhci_handler:
-    push rax
-    push rcx
-    push rdx
-    push rsi
-    push rdi
-    push r8
-    push r9
-    push r10
-    push r11
-    push rbp
-    mov  rbp, rsp           ; save RSP before alignment
-    and  rsp, -16           ; force 16-byte alignment for call
-    call xhci_keyboard_isr
-    mov  rsp, rbp           ; restore unaligned RSP
-    pop  rbp
-    pop  r11
-    pop  r10
-    pop  r9
-    pop  r8
-    pop  rdi
-    pop  rsi
-    pop  rdx
-    pop  rcx
-    pop  rax
-    iretq
 
 exception_common:
     ; Clean alignment backup pass
