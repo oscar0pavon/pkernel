@@ -4,6 +4,7 @@
 #include "memory.h"
 #include "lapic_timer.h"
 #include "sched.h"
+#include "drivers/pci.h"
 
 #define LINE_MAX 256
 
@@ -16,7 +17,20 @@ static int str_eq(const char *a, const char *b) {
 }
 
 static void cmd_help(void) {
-    printf("commands: help  clear  mem  uptime  tasks\n");
+    printf("commands: help  clear  mem  uptime  tasks  lspci\n");
+}
+
+static void cmd_lspci(void) {
+    static PciDevice devs[MAX_PCI_DEVICES];
+    int count = get_pci_list(devs, MAX_PCI_DEVICES);
+    for (int i = 0; i < count; i++) {
+        PciDevice *d = &devs[i];
+        printf("%02x:%02x.%x  %04x:%04x  class %02x:%02x:%02x\n",
+               d->bus, d->device, d->function,
+               d->vendor_id, d->device_id,
+               d->class_code, d->subclass, d->prog_if);
+    }
+    printf("%d device(s) found\n", count);
 }
 
 static void cmd_tasks(void) {
@@ -65,6 +79,7 @@ static void dispatch(void) {
     else if (str_eq(line, "mem"))    cmd_mem();
     else if (str_eq(line, "uptime")) cmd_uptime();
     else if (str_eq(line, "tasks"))  cmd_tasks();
+    else if (str_eq(line, "lspci")) cmd_lspci();
     else    printf("unknown: %s\n", line);
 }
 
