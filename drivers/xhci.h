@@ -14,6 +14,11 @@ typedef struct EventRingSegmentEntry EventRingSegmentEntry;
 typedef struct XhciCapabilityRegs XhciCapabilityRegs;
 typedef struct XhciOperationalRegs XhciOperationalRegs;
 
+typedef struct XhciTRB XhciTRB;
+typedef struct XhciEventTRB XhciEventTRB;
+typedef struct XhciInputContext XhciInputContext;
+typedef struct XhciDeviceContext XhciDeviceContext;
+
 // Transfer Request Block (TRB)
 // TRB Types (xHCI spec Table 6-91)
 #define TRB_TYPE_NORMAL                   1

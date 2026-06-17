@@ -15,24 +15,27 @@ void xhci_set_debug(int enabled) { xhci_debug = enabled; }
 // ============================================================================
 // DATA STRUCTURES - All page-aligned for DMA
 // ============================================================================
-
+//
+// (ERST) Event Ring Segment Table
+//
 aligned4k volatile uint64_t dcbaap[64] = {0};
-aligned4k volatile struct XhciTRB command_ring[256] = {0};
-aligned4k volatile struct XhciEventTRB event_ring[256] = {0};
+aligned4k volatile XhciTRB command_ring[256] = {0};
+aligned4k volatile XhciEventTRB event_ring[256] = {0};
+
 // xHCI spec requires 64-byte alignment for ERST, not page alignment.
 // Using aligned4k caused erst to share the same 4K address as event_ring.
-__attribute__((aligned(64))) volatile struct EventRingSegmentEntry erst = {0};
+aligned64 volatile EventRingSegmentEntry erst = {0};
 
 // Address Device buffers (one slot supported for now)
-aligned4k volatile struct XhciInputContext  input_ctx  = {0};
-aligned4k volatile struct XhciDeviceContext device_ctx = {0};
-aligned4k volatile struct XhciTRB           ep0_ring[256] = {0};
+aligned4k volatile XhciInputContext  input_ctx  = {0};
+aligned4k volatile XhciDeviceContext device_ctx = {0};
+aligned4k volatile XhciTRB           ep0_ring[256] = {0};
 
 // DMA receive buffer for USB descriptors (256 bytes covers any standard descriptor)
 aligned4k volatile uint8_t descriptor_buffer[256] = {0};
 
 // EP1 IN transfer ring (used from Step 12 onward)
-aligned4k volatile struct XhciTRB ep1in_ring[256] = {0};
+aligned4k volatile XhciTRB ep1in_ring[256] = {0};
 
 XHCIDevice xhci_dev = {0};
 
@@ -191,9 +194,9 @@ void xhci_setup_event_ring(void) {
   // Get runtime registers
   uint64_t rt_base = xhci_dev.base_mmio + xhci_dev.cap_regs->Rtsoff;
   volatile struct XhciInterrupterRegs *int_0 =
-      (volatile struct XhciInterrupterRegs *)(rt_base + 0x20);
+      (volatile XhciInterrupterRegs *)(rt_base + 0x20);
 
-  xhci_dev.runtime_regs = (struct XhciRuntimeRegs *)rt_base;
+  xhci_dev.runtime_regs = (XhciRuntimeRegs *)rt_base;
   xhci_dev.int_0_regs = int_0;
 
   // Setup ERST entry (one segment in our case)
