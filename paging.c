@@ -1,4 +1,5 @@
 #include "console.h"
+#include "memory.h"
 #include <stdint.h>
 
 // Page table entry bitmask flags defined by x86-64 hardware architecture
@@ -8,19 +9,14 @@
 
 // Allocate 4KB blocks in the .bss section for our tables.
 // Each directory holds exactly 512 entries (512 * 8 bytes = 4096 bytes).
-__attribute__((aligned(4096))) static uint64_t kernel_pml4[512];
-__attribute__((aligned(4096))) static uint64_t kernel_pdpt[512];
-__attribute__((
-    aligned(4096))) static uint64_t kernel_pd0[512]; // Maps 0GB - 1GB
-__attribute__((
-    aligned(4096))) static uint64_t kernel_pd1[512]; // Maps 1GB - 2GB
-__attribute__((
-    aligned(4096))) static uint64_t kernel_pd2[512]; // Maps 2GB - 3GB
-__attribute__((aligned(
-    4096))) static uint64_t kernel_pd3[512]; // Maps 3GB - 4GB (Includes your
-                                             // high xHCI MMIO / ACPI zones)
+aligned4k static uint64_t kernel_pml4[512];
+aligned4k static uint64_t kernel_pdpt[512];
+aligned4k static uint64_t kernel_pd0[512]; // Maps 0GB - 1GB
+aligned4k static uint64_t kernel_pd1[512]; // Maps 1GB - 2GB
+aligned4k static uint64_t kernel_pd2[512]; // Maps 2GB - 3GB
+aligned4k static uint64_t kernel_pd3[512]; // Maps 3GB - 4GB (Includes your
+aligned4k static uint64_t kernel_pd_xhci[512];// high xHCI MMIO / ACPI zones)
 
-__attribute__((aligned(4096))) static uint64_t kernel_pd_xhci[512];
 
 void init_kernel_paging(void) {
   // 1. Zero out the tables completely to wipe any random RAM junk bytes
@@ -49,8 +45,8 @@ void init_kernel_paging(void) {
   // 4. Fill the directories to identity-map the lower 4GB using fast 2MB huge
   // pages
   for (uint64_t i = 0; i < 512; i++) {
-    uint64_t chunk_2mb =
-        i * 0x200000; // 512 entries * 2MB = 1GB per directory table block
+    // 512 entries * 2MB = 1GB per directory table block
+    uint64_t chunk_2mb = i * 0x200000; 
 
     // Directory 0: 0GB to 1GB (Maps your kernel code space and stack zones!)
     kernel_pd0[i] =
@@ -76,7 +72,7 @@ void init_kernel_paging(void) {
   // 5. Load your new unrestricted page tables directly into the CPU!
   // Writing to CR3 forces the processor to instantly ditch UEFI's zombie maps.
   uint64_t pml4_addr = (uint64_t)kernel_pml4;
-  __asm__ volatile("mov %0, %%cr3" : : "r"(pml4_addr) : "memory");
+  asm volatile("mov %0, %%cr3" : : "r"(pml4_addr) : "memory");
 
   printf("Paging enabled\n");
 }

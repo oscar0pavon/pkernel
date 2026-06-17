@@ -4,13 +4,13 @@
 #include "../lapic.h"
 #include <stdint.h>
 #include <string.h>
+#include "../memory.h"
 
 static int xhci_debug = 0;
 #define XDBG(...) do { if (xhci_debug) printf(__VA_ARGS__); } while(0)
 
 void xhci_set_debug(int enabled) { xhci_debug = enabled; }
 
-#define aligned4k __attribute__((aligned(4096)))
 
 // ============================================================================
 // DATA STRUCTURES - All page-aligned for DMA

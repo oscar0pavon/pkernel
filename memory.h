@@ -4,6 +4,8 @@
 #include "types.h"
 #include <stddef.h>
 
+#define aligned4k __attribute__((aligned(4096)))
+
 struct MemoryDescriptor {
   uint32_t type;
   uint32_t padding;
