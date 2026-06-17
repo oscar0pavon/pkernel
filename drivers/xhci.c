@@ -35,6 +35,12 @@ aligned4k volatile uint8_t descriptor_buffer[256] = {0};
 // EP1 IN transfer ring (used from Step 12 onward)
 aligned4k volatile XhciTRB ep1in_ring[256] = {0};
 
+// Scratchpad buffers (xHCI spec 4.20): controller-private memory pages.
+// DCBAAP[0] must point to this array before the Run bit is set.
+#define XHCI_MAX_SCRATCHPAD 64
+aligned4k volatile uint64_t scratchpad_array[XHCI_MAX_SCRATCHPAD] = {0};
+aligned4k volatile uint8_t  scratchpad_pages[XHCI_MAX_SCRATCHPAD][4096] = {0};
+
 XHCIDevice xhci_dev = {0};
 
 // Tracking state for command/event rings
@@ -153,6 +159,8 @@ void xhci_init_structures(void) {
   memset((void*)event_ring, 0, sizeof(event_ring));
   memset((void*)dcbaap, 0, sizeof(dcbaap));
   memset((void*)&erst, 0, sizeof(erst));
+  memset((void*)scratchpad_array, 0, sizeof(scratchpad_array));
+  memset((void*)scratchpad_pages, 0, sizeof(scratchpad_pages));
 
   XDBG("Zeroed command ring, event ring, DCBAAP, ERST.\n");
   XDBG("=== STEP 2: COMPLETE ===\n\n");
@@ -236,11 +244,21 @@ void xhci_start_controller(void) {
   XDBG("CONFIG set to 1 slot.\n");
 
   uint32_t hcs2 = xhci_dev.cap_regs->HcsParams2;
-  uint32_t max_scratch = (hcs2 >> 27) & 0x1F;
+  // 10-bit field: HcsParams2[31:27] = high 5 bits, HcsParams2[25:21] = low 5 bits
+  uint32_t max_scratch = (((hcs2 >> 27) & 0x1F) << 5) | ((hcs2 >> 21) & 0x1F);
   XDBG("Max scratchpad bufs: %d\n", max_scratch);
-  if (max_scratch > 0) {
-    printf("ERROR: Scratchpad buffers required but not implemented!\n");
+
+  if (max_scratch > XHCI_MAX_SCRATCHPAD) {
+    printf("ERROR: Controller needs %d scratchpad bufs (max supported: %d)\n",
+           max_scratch, XHCI_MAX_SCRATCHPAD);
     return;
+  }
+
+  if (max_scratch > 0) {
+    for (uint32_t i = 0; i < max_scratch; i++)
+      scratchpad_array[i] = (uint64_t)&scratchpad_pages[i][0];
+    dcbaap[0] = (uint64_t)&scratchpad_array[0];
+    XDBG("Scratchpad array at 0x%lx (%d bufs)\n", dcbaap[0], max_scratch);
   }
 
   xhci_dev.op_regs->Dcbaap = (uint64_t)&dcbaap[0];
