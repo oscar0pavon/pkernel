@@ -19,7 +19,7 @@ static Task    *current  = &main_task;
 static uint32_t next_tid = 0;
 
 void sched_init(void) {
-    main_task.rsp       = 0;
+    asm volatile("mov %%rsp, %0" : "=r"(main_task.rsp));
     main_task.stack     = 0;
     main_task.tid       = next_tid++;
     main_task.switches  = 0;
@@ -84,10 +84,9 @@ uint64_t sched_tick(uint64_t rsp) {
     uint64_t now  = lapic_timer_uptime_ms();
     Task    *next = current->next;
     Task    *stop = next;           // remember where we started scanning
-    // Walk forward past tasks that aren't ready (not yet saved or still sleeping)
-    while (next->rsp == 0 || next->wake_time > now) {
+    while (next->wake_time > now) {
         next = next->next;
-        if (next == stop) { next = current; break; }  // full loop: nobody else ready
+        if (next == stop) { next = current; break; }
     }
     if (next != current) {
         current = next;
