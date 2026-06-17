@@ -19,12 +19,13 @@ static Task    *current  = &main_task;
 static uint32_t next_tid = 0;
 
 void sched_init(void) {
-    main_task.rsp      = 0;
-    main_task.stack    = 0;
-    main_task.tid      = next_tid++;
-    main_task.switches = 0;
-    main_task.name     = "main";
-    main_task.next     = &main_task;
+    main_task.rsp       = 0;
+    main_task.stack     = 0;
+    main_task.tid       = next_tid++;
+    main_task.switches  = 0;
+    main_task.wake_time = 0;
+    main_task.name      = "main";
+    main_task.next      = &main_task;
     current = &main_task;
 }
 
@@ -45,11 +46,12 @@ Task *task_create(const char *name, void (*func)(void)) {
     *--sp = (uint64_t)func;                  // r15
 
 
-    t->rsp      = (uint64_t)sp;
-    t->stack    = s;
-    t->tid      = next_tid++;
-    t->switches = 0;
-    t->name     = name;
+    t->rsp       = (uint64_t)sp;
+    t->stack     = s;
+    t->tid       = next_tid++;
+    t->switches  = 0;
+    t->wake_time = 0;
+    t->name      = name;
     
 
     // Insert into circular list right after current task
@@ -78,12 +80,27 @@ uint64_t sched_tick(uint64_t rsp) {
     lapic_timer_isr();      // ticks++ and LAPIC EOI
 
     current->rsp = rsp;
-    Task *next   = current->next;
-    if (next->rsp != 0) {   // guard: skip switch if next hasn't been saved yet
+
+    uint64_t now  = lapic_timer_uptime_ms();
+    Task    *next = current->next;
+    Task    *stop = next;           // remember where we started scanning
+    // Walk forward past tasks that aren't ready (not yet saved or still sleeping)
+    while (next->rsp == 0 || next->wake_time > now) {
+        next = next->next;
+        if (next == stop) { next = current; break; }  // full loop: nobody else ready
+    }
+    if (next != current) {
         current = next;
         current->switches++;
     }
     return current->rsp;
+}
+
+void task_sleep(uint64_t ms) {
+    current->wake_time = lapic_timer_uptime_ms() + ms;
+    while (lapic_timer_uptime_ms() < current->wake_time)
+        asm volatile("hlt");        // yield each tick; sched_tick skips us while sleeping
+    current->wake_time = 0;
 }
 
 Task *sched_task_list(void) {

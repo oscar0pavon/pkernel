@@ -20,11 +20,17 @@ static void cmd_help(void) {
 }
 
 static void cmd_tasks(void) {
-    Task *head = sched_task_list();
-    Task *t = head;
+    uint64_t now  = lapic_timer_uptime_ms();
+    Task    *head = sched_task_list();
+    Task    *t    = head;
     do {
-        printf("  [%d] %s  switches=%d\n",
-               t->tid, t->name, (uint32_t)t->switches);
+        if (t->wake_time > now)
+            printf("  [%d] %-8s  switches=%d  sleeping %d ms\n",
+                   t->tid, t->name, (uint32_t)t->switches,
+                   (uint32_t)(t->wake_time - now));
+        else
+            printf("  [%d] %-8s  switches=%d\n",
+                   t->tid, t->name, (uint32_t)t->switches);
         t = t->next;
     } while (t != head);
 }
