@@ -31,7 +31,7 @@ static void idle_task(void) {
 void print_every_seconds(void){
   for (int i = 0; i < 10; i++) {
     printf("Seconds %d\n", i);
-    task_sleep(10000);
+    task_sleep(1000);
   }
 }
 
