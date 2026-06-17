@@ -28,37 +28,6 @@ static void idle_task(void) {
   while (1) { asm volatile("hlt"); }
 }
 
-byte read_pit_count(void){
-	clear_interptions();
-	byte count = 0;
-
-	output_byte(0b00000000, 0x43);
-
-	count = input_byte(0x40);
-	count |= input_byte(0x40)<<8;
-	return count;
-}
-
-void run_counter() {
-  uint64_t tick = 0;
-  u16 seconds = 0;
-  for (int i = 0; i < 100000; i++) {
-    byte start_counter = read_pit_count();
-    byte current_count = 0xFE;
-    while (1) {
-      current_count = read_pit_count();
-      if (start_counter < current_count)
-        break;
-    }
-    tick++;
-    if (tick % 5400 == 0) {
-      clear_current_line();
-      printf("Time: %d", seconds);
-      seconds++;
-    }
-  }
-  printf("\n");
-}
 
 void main(BootInfo* boot_info){
 
