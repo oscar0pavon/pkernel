@@ -61,6 +61,8 @@ void main(BootInfo* boot_info){
 
 	XSDT = (struct XSDT_t*)xsdt_address;
 	parse_XSDT();
+  
+  setup_pci();
 
   lapic_timer_init(100);     // calibrate + start periodic timer at 100 Hz
   task_create("idle", idle_task);

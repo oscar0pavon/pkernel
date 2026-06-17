@@ -69,25 +69,14 @@ void parse_XSDT() {
     // PCI Express Extended Configuration Space (ECAM).
     if (acpi_compare_signature(myheader->signature, "MCFG")) {
       struct MCFG_t *mcfg = (struct MCFG_t *)myheader;
-      // printf("Found MCFG Table with size %d\n", myheader->length);
-
       // Pointer to the first entry block, which starts exactly 44 bytes into
       // the table
       uint8_t *table_bytes = (uint8_t *)myheader;
       struct MCFGStructureEntry *first_entry =
           (struct MCFGStructureEntry *)(table_bytes + 44);
 
-      // Read properties from the first entry directly
-      //uint64_t* mmio = get_pcie_mmio_address();
-      //*mmio = first_entry->BaseAddress;
       pcie_mmio_base_address = first_entry->BaseAddress;
 
-      printf("--> SUCCESS! MCFG Entry 0 Base Address: %x\n",
-            pcie_mmio_base_address);
-      printf("--> Bus Range: %d to %d\n", first_entry->StartBusNumber,
-             first_entry->EndBusNumber);
-
-      setup_pci();
     }
   }
 }
