@@ -6,63 +6,77 @@
 
 uint64_t pcie_mmio_base_address = 0;
 
-void setup_pci() {
-
-  printf("pcie mmio %lx\n", pcie_mmio_base_address);
+int get_pci_list(PciDevice *list, int max_count) {
   uint64_t mcfg_base = pcie_mmio_base_address;
-  uint8_t bus = 0;
+  int count = 0;
 
-  for (uint8_t dev = 0; dev < 32; dev++) {
-    for (uint8_t func = 0; func < 8; func++) {
-      
-      // Calculate the 64-bit physical address for this PCI slot's registers
-      uint64_t device_config_space = mcfg_base + ((uint64_t)bus << 20) |
-                                     ((uint64_t)dev << 15) |
-                                     ((uint64_t)func << 12);
+  for (uint8_t bus = 0; bus < 8 && count < max_count; bus++) {
+    for (uint8_t dev = 0; dev < 32 && count < max_count; dev++) {
+      for (uint8_t func = 0; func < 8 && count < max_count; func++) {
 
-      volatile uint32_t *pci_regs = (volatile uint32_t *)device_config_space;
+        uint64_t cfg_addr = mcfg_base + ((uint64_t)bus << 20) |
+                                        ((uint64_t)dev << 15) |
+                                        ((uint64_t)func << 12);
 
-      uint32_t id_reg = pci_regs[0]; // Offset 0x00: Vendor/Device ID
-      if (id_reg == 0xFFFFFFFF || id_reg == 0x00000000) {
-        if (func == 0)
-          break;
-        continue;
-      }
+        volatile uint32_t *regs = (volatile uint32_t *)cfg_addr;
 
-      uint32_t class_reg = pci_regs[2]; // Offset 0x08: Class/Subclass/ProgIF
-      uint8_t class = class_reg >> 24;
-      uint8_t sub_class = (class_reg >> 16) & 0xFF;
-      uint8_t prog_if = (class_reg >> 8) & 0xFF;
-
-      // Match xHCI USB 3.0 Controller Spec
-      if (class == PCI_CLASS_SERIAL_BUS &&
-          sub_class == PCI_SUBCLASS_USB_CONTROLLER) {
-
-        if (prog_if == PCI_INTERFACE_XHCI) {
-
-          printf("xHCI Device Found at Slot %d, Func %d!\n", dev, func);
-          xhci_dev.pci_regs = pci_regs;
-
-          // 1. MANDATORY: 
-          // Enable Memory Space and Bus Mastering in Command Reg
-          // (Offset 0x04)
-          //pci_regs[1] |= PCI_CMD_MEMORY_SPACE | PCI_CMD_BUS_MASTER;
-
-          // 2. Read BAR0 and BAR1 (Offsets 0x10 and 0x14 / Indices 4 and 5)
-          uint32_t bar0 = pci_regs[4];
-          uint32_t bar1 = pci_regs[5];
-
-          xhci_dev.base_mmio = (bar0 & 0xFFFFFFF0);
-          if ((bar0 & 0x06) == 0x04) {
-            xhci_dev.base_mmio |= ((uint64_t)bar1 << 32);
-          }
-
-          printf("xHCI Controller Internal Registers live at: %lx\n",
-                 xhci_dev.base_mmio);
-
-          init_xhci_driver();
+        uint32_t id_reg = regs[0];
+        if (id_reg == 0xFFFFFFFF || id_reg == 0x00000000) {
+          if (func == 0)
+            break;
+          continue;
         }
+
+        uint32_t class_reg = regs[2];
+
+        PciDevice *d = &list[count++];
+        d->bus         = bus;
+        d->device      = dev;
+        d->function    = func;
+        d->vendor_id   = (uint16_t)(id_reg & 0xFFFF);
+        d->device_id   = (uint16_t)(id_reg >> 16);
+        d->revision_id = (uint8_t)(class_reg & 0xFF);
+        d->prog_if     = (uint8_t)((class_reg >> 8) & 0xFF);
+        d->subclass    = (uint8_t)((class_reg >> 16) & 0xFF);
+        d->class_code  = (uint8_t)(class_reg >> 24);
+        d->config_space = regs;
       }
+    }
+  }
+
+  return count;
+}
+
+void setup_pci() {
+  printf("pcie mmio %lx\n", pcie_mmio_base_address);
+
+  static PciDevice pci_devices[MAX_PCI_DEVICES];
+  int count = get_pci_list(pci_devices, MAX_PCI_DEVICES);
+
+  for (int i = 0; i < count; i++) {
+    PciDevice *d = &pci_devices[i];
+
+    if (d->class_code == PCI_CLASS_SERIAL_BUS &&
+        d->subclass == PCI_SUBCLASS_USB_CONTROLLER &&
+        d->prog_if == PCI_INTERFACE_XHCI) {
+
+      printf("xHCI Device Found at Bus %d, Slot %d, Func %d!\n",
+             d->bus, d->device, d->function);
+
+      xhci_dev.pci_regs = d->config_space;
+
+      uint32_t bar0 = d->config_space[4];
+      uint32_t bar1 = d->config_space[5];
+
+      xhci_dev.base_mmio = (bar0 & 0xFFFFFFF0);
+      if ((bar0 & 0x06) == 0x04) {
+        xhci_dev.base_mmio |= ((uint64_t)bar1 << 32);
+      }
+
+      printf("xHCI Controller Internal Registers live at: %lx\n",
+             xhci_dev.base_mmio);
+
+      init_xhci_driver();
     }
   }
 }

@@ -38,11 +38,22 @@ extern uint64_t pcie_mmio_base_address;
 
 typedef struct PciDevice {
 	u8 bus;
-	u16 device_funtion;
+	u8 device;
+	u8 function;
+	u16 vendor_id;
+	u16 device_id;
+	u8 class_code;
+	u8 subclass;
+	u8 prog_if;
+	u8 revision_id;
+	volatile u32 *config_space;
 } PciDevice;
 
+#define MAX_PCI_DEVICES 256
 
 uint64_t* get_pcie_mmio_address();
+
+int get_pci_list(PciDevice *list, int max_count);
 
 void setup_pci();
 
