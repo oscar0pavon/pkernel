@@ -12,9 +12,10 @@ typedef struct Task {
     struct Task *next;     // circular linked list
 } Task;
 
-void    sched_init(void);
-Task   *task_create(const char *name, void (*func)(void));
+void     sched_init(void);
+Task    *task_create(const char *name, void (*func)(void));
+void     task_exit(void);           // remove current task and switch away; never returns
 uint64_t sched_tick(uint64_t rsp);  // called from irq_sched_handler; returns new rsp
-Task   *sched_task_list(void);      // head of circular task list (main task)
+Task    *sched_task_list(void);     // head of circular task list (main task)
 
 #endif
