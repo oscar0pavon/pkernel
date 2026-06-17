@@ -5,6 +5,9 @@
 #include <stddef.h>
 
 #define aligned4k __attribute__((aligned(4096)))
+#define aligned64 __attribute__((aligned(64)))
+
+#define XDBG(...) do { if (xhci_debug) printf(__VA_ARGS__); } while(0)
 
 struct MemoryDescriptor {
   uint32_t type;

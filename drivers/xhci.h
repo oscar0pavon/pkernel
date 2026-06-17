@@ -4,9 +4,12 @@
 #include "../types.h"
 #include "pci.h"
 #include <stdint.h>
+#include "../console.h"
 
 #define MY_USB_ID 0x7a60
 #define PCI_INTERFACE_XHCI 0x30
+
+#define XDBG(...) do { if (xhci_debug) printf(__VA_ARGS__); } while(0)
 
 typedef struct XhciInterrupterRegs XhciInterrupterRegs;
 typedef struct XhciRuntimeRegs XhciRuntimeRegs;
@@ -44,7 +47,9 @@ typedef struct XhciDeviceContext XhciDeviceContext;
 // ============================================================================
 // REGISTER STRUCTURES
 // ============================================================================
-
+//
+//Host Controller Structural Parameters (HCSPARAMS)
+//
 struct XhciCapabilityRegs {
   uint8_t CapLength;
   uint8_t Reserved;
@@ -241,5 +246,15 @@ extern uint16_t ep1_in_mps;
 extern uint8_t  ep1_in_interval;
 extern uint8_t  ep1_in_number;
 extern uint16_t hid_report_len;
+
+extern uint32_t command_ring_enqueue;
+extern uint32_t command_ring_cycle;
+
+extern uint32_t event_ring_dequeue;
+extern uint32_t event_ring_cycle;
+
+extern int xhci_debug;
+
+extern volatile XhciEventTRB event_ring[256];
 
 #endif

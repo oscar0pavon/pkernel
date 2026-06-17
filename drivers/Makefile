@@ -15,5 +15,6 @@ drivers.a: $(objets)
 
 clean:
 	rm -f *.o
+	rm -f drivers.a
 
 $(LOG).SILENT:

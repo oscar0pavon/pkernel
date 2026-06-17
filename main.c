@@ -28,6 +28,13 @@ static void idle_task(void) {
   while (1) { asm volatile("hlt"); }
 }
 
+void print_every_seconds(void){
+  for (int i = 0; i < 10; i++) {
+    printf("Seconds %d\n", i);
+    task_sleep(10000);
+  }
+}
+
 
 void main(BootInfo* boot_info){
 
@@ -62,6 +69,8 @@ void main(BootInfo* boot_info){
   asm volatile("sti");   // unmask interrupts — keyboard IRQs can now fire
 
   printf("--You are in owner space now--\n");
+
+  task_create("counter", print_every_seconds);
 
   task_create("shell", shell_run);
 
