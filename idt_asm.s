@@ -44,7 +44,7 @@ section '.text' executable
   public irq_sched_handler
 
   extrn c_exception_handler
-  extrn xhci_keyboard_isr
+  extrn usb_kbd_isr
   extrn lapic_timer_isr
   extrn sched_tick
 
@@ -80,7 +80,7 @@ irq_spurious_handler:
 ; calls the C handler, then unwinds.
 irq_xhci_handler:
     PUSH_IRQ 
-    CALL_ALIGNED xhci_keyboard_isr 
+    CALL_ALIGNED usb_kbd_isr
     POP_IRQ
     iretq
 

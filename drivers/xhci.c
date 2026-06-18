@@ -1,7 +1,5 @@
 #include "xhci.h"
 #include "../console.h"
-#include "../input.h"
-#include "../lapic.h"
 #include <stdint.h>
 #include <string.h>
 #include "../memory.h"
@@ -59,6 +57,12 @@ uint32_t ep1in_cycle   = 1;
 // Device info saved across enumeration steps
 static uint32_t dev_speed = 0;
 static uint32_t dev_port  = 0;
+
+// Interface descriptor class/subclass/protocol captured during Step 11,
+// used after configuration to pick the matching USB class driver.
+static uint8_t iface_class    = 0;
+static uint8_t iface_subclass = 0;
+static uint8_t iface_protocol = 0;
 
 // Endpoint info populated by Step 11, consumed by Steps 12–14
 uint8_t  ep1_in_addr     = 0;
@@ -394,7 +398,7 @@ void xhci_address_device(uint32_t slot_id, uint32_t port) {
 
   // EP0 Endpoint Context
   // dw1: CErr=3, EP Type=Control Bidirectional(4), Max Packet Size
-  input_ctx.ep0.dw1 = (3U << 1) | (EP_TYPE_CONTROL_BIDIR << 3) | ((uint32_t)mps << 16);
+  input_ctx.ep0.dw1 = (3U << 1) | (XHCI_EP_TYPE_CONTROL << 3) | ((uint32_t)mps << 16);
   // dw2/dw3: TR Dequeue Pointer | DCS=1
   uint64_t ep0_addr = (uint64_t)&ep0_ring[0];
   input_ctx.ep0.dw2 = (uint32_t)(ep0_addr & ~0xFULL) | 1;
@@ -435,7 +439,7 @@ void xhci_address_device(uint32_t slot_id, uint32_t port) {
   XDBG("Slot %d is now in Addressed state.\n", slot_id);
   XDBG("=== STEP 8: COMPLETE ===\n\n");
 
-  if (!xhci_get_descriptor(slot_id, USB_DESC_TYPE_DEVICE, 18)) return;
+  if (!xhci_get_descriptor(slot_id, USB_DESC_DEVICE, 18)) return;
 
   // Step 10: if reported EP0 MPS differs from the speed-based default, update it
   uint8_t reported_mps = descriptor_buffer[7];
@@ -451,8 +455,9 @@ void xhci_address_device(uint32_t slot_id, uint32_t port) {
   uint8_t config_val = descriptor_buffer[5];  // bConfigurationValue from Config Descriptor
   if (!xhci_set_configuration(slot_id, config_val)) return;
 
-  if (!xhci_get_hid_report_descriptor(slot_id)) return;  // Step 13
-  xhci_arm_keyboard(slot_id);                            // Step 14 — queue first TRB and return
+  // Enumeration done. Hand the device to the matching USB class driver
+  // (HID keyboard today, mass storage / disk later) based on its interface.
+  usb_attach_device(slot_id, iface_class, iface_subclass, iface_protocol);
 }
 
 // ============================================================================
@@ -531,8 +536,8 @@ uint32_t xhci_poll_event_ring(void) {
 // EP0 HELPER: Submit a Control IN transfer on EP0 (Setup + Data + Status).
 // Handles ep0_ring wrap at slot 255. Returns 1 on success, 0 on failure.
 // ============================================================================
-static uint32_t ep0_control_in(uint32_t slot_id, uint64_t setup,
-                                volatile uint8_t *buf, uint16_t length) {
+uint32_t xhci_control_in(uint32_t slot_id, uint64_t setup,
+                         volatile uint8_t *buf, uint16_t length) {
   // Setup Stage TRB: IDT=1 (immediate data), TRT=3 (IN data follows)
   volatile struct XhciTRB *s = &ep0_ring[ep0_enqueue++];
   s->Parameter = setup;
@@ -687,7 +692,7 @@ int xhci_evaluate_context(uint32_t slot_id, uint8_t new_mps) {
   memset((void *)&input_ctx, 0, sizeof(input_ctx));
   input_ctx.ctrl.drop_flags = 0;
   input_ctx.ctrl.add_flags  = (1U << 1);  // A1 = EP0 only
-  input_ctx.ep0.dw1 = (3U << 1) | (EP_TYPE_CONTROL_BIDIR << 3) | ((uint32_t)new_mps << 16);
+  input_ctx.ep0.dw1 = (3U << 1) | (XHCI_EP_TYPE_CONTROL << 3) | ((uint32_t)new_mps << 16);
 
   volatile struct XhciTRB *trb = &command_ring[command_ring_enqueue];
   trb->Parameter = (uint64_t)&input_ctx;
@@ -728,10 +733,10 @@ int xhci_get_config_descriptor(uint32_t slot_id) {
 
   uint64_t setup9 = (uint64_t)0x80
                   | ((uint64_t)0x06 << 8)
-                  | ((uint64_t)USB_DESC_TYPE_CONFIG << 24)
+                  | ((uint64_t)USB_DESC_CONFIG << 24)
                   | ((uint64_t)9 << 48);
 
-  if (!ep0_control_in(slot_id, setup9, descriptor_buffer, 9)) {
+  if (!xhci_control_in(slot_id, setup9, descriptor_buffer, 9)) {
     printf("ERROR: GET_DESCRIPTOR Config (9 bytes) failed\n");
     return 0;
   }
@@ -750,10 +755,10 @@ int xhci_get_config_descriptor(uint32_t slot_id) {
 
   uint64_t setup_full = (uint64_t)0x80
                       | ((uint64_t)0x06 << 8)
-                      | ((uint64_t)USB_DESC_TYPE_CONFIG << 24)
+                      | ((uint64_t)USB_DESC_CONFIG << 24)
                       | ((uint64_t)total_length << 48);
 
-  if (!ep0_control_in(slot_id, setup_full, descriptor_buffer, total_length)) {
+  if (!xhci_control_in(slot_id, setup_full, descriptor_buffer, total_length)) {
     printf("ERROR: GET_DESCRIPTOR Config (full) failed\n");
     return 0;
   }
@@ -772,14 +777,17 @@ int xhci_get_config_descriptor(uint32_t slot_id) {
 
     if (bLength < 2 || offset + bLength > total_length) break;
 
-    if (bType == 0x04) {  // Interface Descriptor
+    if (bType == USB_DESC_INTERFACE) {
+      iface_class    = descriptor_buffer[offset + 5];
+      iface_subclass = descriptor_buffer[offset + 6];
+      iface_protocol = descriptor_buffer[offset + 7];
       XDBG("Interface Descriptor:\n");
       XDBG("  bInterfaceNumber:   %d\n", descriptor_buffer[offset + 2]);
       XDBG("  bNumEndpoints:      %d\n", descriptor_buffer[offset + 4]);
-      XDBG("  bInterfaceClass:    0x%x\n", descriptor_buffer[offset + 5]);
-      XDBG("  bInterfaceSubClass: 0x%x\n", descriptor_buffer[offset + 6]);
-      XDBG("  bInterfaceProtocol: 0x%x\n", descriptor_buffer[offset + 7]);
-    } else if (bType == 0x21) {  // HID Descriptor
+      XDBG("  bInterfaceClass:    0x%x\n", iface_class);
+      XDBG("  bInterfaceSubClass: 0x%x\n", iface_subclass);
+      XDBG("  bInterfaceProtocol: 0x%x\n", iface_protocol);
+    } else if (bType == USB_DESC_HID) {  // HID Descriptor
       uint16_t bcdHID    = (uint16_t)descriptor_buffer[offset + 2]
                          | ((uint16_t)descriptor_buffer[offset + 3] << 8);
       uint16_t rpt_len   = (uint16_t)descriptor_buffer[offset + 7]
@@ -790,11 +798,11 @@ int xhci_get_config_descriptor(uint32_t slot_id) {
       XDBG("  bCountryCode:       %d\n",   descriptor_buffer[offset + 4]);
       XDBG("  bNumDescriptors:    %d\n",   descriptor_buffer[offset + 5]);
       XDBG("  wDescriptorLength:  %d\n",   rpt_len);
-    } else if (bType == 0x05) {  // Endpoint Descriptor
+    } else if (bType == USB_DESC_ENDPOINT) {  // Endpoint Descriptor
       uint8_t  addr = descriptor_buffer[offset + 2];
       uint16_t mps  = (uint16_t)descriptor_buffer[offset + 4]
                     | ((uint16_t)descriptor_buffer[offset + 5] << 8);
-      if (addr & 0x80) {
+      if (addr & USB_EP_DIR_IN) {
         ep1_in_addr     = addr;
         ep1_in_mps      = mps;
         ep1_in_interval = descriptor_buffer[offset + 6];
@@ -802,7 +810,7 @@ int xhci_get_config_descriptor(uint32_t slot_id) {
       }
       XDBG("Endpoint Descriptor:\n");
       XDBG("  bEndpointAddress:   0x%x (%s EP%d)\n",
-           addr, (addr & 0x80) ? "IN" : "OUT", addr & 0x0F);
+           addr, (addr & USB_EP_DIR_IN) ? "IN" : "OUT", addr & 0x0F);
       XDBG("  bmAttributes:       0x%x\n", descriptor_buffer[offset + 3]);
       XDBG("  wMaxPacketSize:     %d\n",   mps);
       XDBG("  bInterval:          %d\n",   descriptor_buffer[offset + 6]);
@@ -891,8 +899,8 @@ int xhci_set_configuration(uint32_t slot_id, uint8_t config_val) {
   input_ctx.slot.dw1 = (uint32_t)(dev_port + 1) << 16;
   // EP1 IN Endpoint Context
   input_ctx.ep1in.dw0 = (uint32_t)xhci_interval << 16;
-  // CErr=3, EPType=7 (Interrupt IN), MaxPacketSize
-  input_ctx.ep1in.dw1 = (3U << 1) | (7U << 3) | ((uint32_t)ep1_in_mps << 16);
+  // CErr=3, EPType=Interrupt IN, MaxPacketSize
+  input_ctx.ep1in.dw1 = (3U << 1) | (XHCI_EP_TYPE_INTERRUPT_IN << 3) | ((uint32_t)ep1_in_mps << 16);
   uint64_t ep1in_addr = (uint64_t)&ep1in_ring[0];
   input_ctx.ep1in.dw2 = (uint32_t)(ep1in_addr & ~0xFULL) | 1;  // DCS=1
   input_ctx.ep1in.dw3 = (uint32_t)(ep1in_addr >> 32);
@@ -926,52 +934,7 @@ int xhci_set_configuration(uint32_t slot_id, uint8_t config_val) {
 }
 
 // ============================================================================
-// STEP 13: GET_DESCRIPTOR HID Report Descriptor (USB HID spec 7.1.1)
-// bmRequestType=0x81 (D-to-H, Standard, Interface), bRequest=0x06,
-// wValue=0x2200 (type=HID Report, index=0), wIndex=0, wLength=hid_report_len
-// ============================================================================
-int xhci_get_hid_report_descriptor(uint32_t slot_id) {
-  XDBG("=== STEP 13: GET_DESCRIPTOR HID Report (len=%d) ===\n", hid_report_len);
-
-  if (hid_report_len == 0) {
-    printf("ERROR: hid_report_len not set (Step 11 may have failed)\n");
-    return 0;
-  }
-
-  uint16_t req_len = (hid_report_len > 256) ? 256 : hid_report_len;
-  for (uint32_t i = 0; i < 256; i++) descriptor_buffer[i] = 0;
-
-  // bmRequestType=0x81: D-to-H, Standard, Interface recipient
-  // wValue high=0x22 (HID Report Descriptor type), wIndex=0 (interface 0)
-  uint64_t setup = (uint64_t)0x81
-                 | ((uint64_t)0x06 << 8)
-                 | ((uint64_t)USB_DESC_TYPE_HID_REPORT << 24)
-                 | ((uint64_t)req_len << 48);
-
-  if (!ep0_control_in(slot_id, setup, descriptor_buffer, req_len)) {
-    printf("ERROR: GET_DESCRIPTOR HID Report failed\n");
-    return 0;
-  }
-
-  static const char hex_ch[] = "0123456789abcdef";
-  XDBG("HID Report Descriptor (%d bytes):\n", req_len);
-  if (xhci_debug) {
-    for (uint16_t i = 0; i < req_len; i++) {
-      uint8_t b = descriptor_buffer[i];
-      char s[4] = {hex_ch[(b >> 4) & 0xF], hex_ch[b & 0xF], ' ', '\0'};
-      printf("%s", s);
-      if ((i + 1) % 16 == 0) printf("\n");
-    }
-    if (req_len % 16 != 0) printf("\n");
-  }
-
-  XDBG("=== STEP 13: COMPLETE ===\n\n");
-  return 1;
-}
-
-
-// ============================================================================
-// MSI CONFIGURATION (call after xhci_arm_keyboard, before STI)
+// MSI CONFIGURATION (call after the device is attached, before STI)
 // ============================================================================
 
 // Walk the PCI capability list, configure MSI to fire on `vector`, then

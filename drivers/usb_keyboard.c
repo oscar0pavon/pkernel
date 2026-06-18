@@ -1,9 +1,10 @@
 #include "usb_keyboard.h"
+#include "usb.h"
 #include "xhci.h"
 #include "../lapic.h"
 #include "../input.h"
 
-// Saved by xhci_arm_keyboard(), consumed by xhci_keyboard_isr()
+// Saved by usb_kbd_attach(), consumed by usb_kbd_isr()
 static uint32_t kbd_slot_id  = 0;
 static uint32_t kbd_db_target = 0;
 
@@ -47,8 +48,8 @@ static void xhci_process_key_report(void) {
   for (int i = 0; i < 6; i++) kbd_prev_kc[i] = kbd_report[i + 2];
 }
 // Queue one Normal TRB on EP1 IN and ring the doorbell.
-// Called once from xhci_arm_keyboard() to prime the pipeline, then again
-// at the end of every xhci_keyboard_isr() to re-arm for the next report.
+// Called once from usb_kbd_attach() to prime the pipeline, then again
+// at the end of every usb_kbd_isr() to re-arm for the next report.
 static void xhci_queue_kbd_trb(void) {
   uint16_t report_sz = ep1_in_mps ? ep1_in_mps : 8;
 
@@ -70,7 +71,7 @@ static void xhci_queue_kbd_trb(void) {
 
 // C-level ISR called from irq_xhci_handler (idt_asm.s).
 // Runs with interrupts disabled (interrupt gate clears RFLAGS.IF on entry).
-void xhci_keyboard_isr(void) {
+void usb_kbd_isr(void) {
   // Clear IMAN.IP (bit 0 = Interrupt Pending; write-1-to-clear)
   xhci_dev.int_0_regs->Iman |= 1;
   // Clear USBSTS.EINT (bit 3; write-1-to-clear)
@@ -111,19 +112,63 @@ void xhci_keyboard_isr(void) {
 }
 
 
+// GET_DESCRIPTOR HID Report Descriptor (USB HID spec 7.1.1).
+// bmRequestType=0x81 (D-to-H, Standard, Interface), bRequest=GET_DESCRIPTOR,
+// wValue=0x2200 (type=HID Report, index=0), wIndex=0, wLength=hid_report_len.
+// hid_report_len was captured by the xHCI config-descriptor walk.
+static int usb_kbd_get_report_descriptor(uint32_t slot_id) {
+  XDBG("=== GET_DESCRIPTOR HID Report (len=%d) ===\n", hid_report_len);
+
+  if (hid_report_len == 0) {
+    printf("ERROR: hid_report_len not set (config parse may have failed)\n");
+    return 0;
+  }
+
+  uint16_t req_len = (hid_report_len > 256) ? 256 : hid_report_len;
+  for (uint32_t i = 0; i < 256; i++) descriptor_buffer[i] = 0;
+
+  // bmRequestType=0x81: D-to-H, Standard, Interface recipient
+  uint64_t setup = (uint64_t)0x81
+                 | ((uint64_t)USB_REQ_GET_DESCRIPTOR << 8)
+                 | ((uint64_t)USB_DESC_HID_REPORT << 24)
+                 | ((uint64_t)req_len << 48);
+
+  if (!xhci_control_in(slot_id, setup, descriptor_buffer, req_len)) {
+    printf("ERROR: GET_DESCRIPTOR HID Report failed\n");
+    return 0;
+  }
+
+  static const char hex_ch[] = "0123456789abcdef";
+  XDBG("HID Report Descriptor (%d bytes):\n", req_len);
+  if (xhci_debug) {
+    for (uint16_t i = 0; i < req_len; i++) {
+      uint8_t b = descriptor_buffer[i];
+      char s[4] = {hex_ch[(b >> 4) & 0xF], hex_ch[b & 0xF], ' ', '\0'};
+      printf("%s", s);
+      if ((i + 1) % 16 == 0) printf("\n");
+    }
+    if (req_len % 16 != 0) printf("\n");
+  }
+
+  return 1;
+}
+
 // ============================================================================
-// STEP 14: Interrupt-driven keyboard via xHCI MSI
+// Attach: turn a configured HID device into a live keyboard.
 // ============================================================================
-//
-// Queue the first TRB and return. MSI will fire when the device sends a report.
-void xhci_arm_keyboard(uint32_t slot_id) {
-  XDBG("=== STEP 14: Arming keyboard interrupt (slot %d, EP%d IN, MPS=%d) ===\n",
+// Called from usb_attach_device() after xHCI enumeration. Fetches the HID
+// report descriptor, then queues the first interrupt-IN TRB. MSI fires when
+// the device sends a report; usb_kbd_isr() takes over from there.
+void usb_kbd_attach(uint32_t slot_id) {
+  XDBG("=== Arming keyboard interrupt (slot %d, EP%d IN, MPS=%d) ===\n",
        slot_id, ep1_in_number, ep1_in_mps);
+
+  if (!usb_kbd_get_report_descriptor(slot_id)) return;
 
   kbd_slot_id   = slot_id;
   kbd_db_target = (uint32_t)ep1_in_number * 2 + 1;
 
   xhci_queue_kbd_trb();
 
-  XDBG("=== STEP 14: Keyboard armed — waiting for MSI ===\n");
+  XDBG("=== Keyboard armed — waiting for MSI ===\n");
 }
