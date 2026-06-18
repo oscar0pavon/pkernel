@@ -30,35 +30,40 @@ void sched_init(void) {
 }
 
 Task *task_create(const char *name, void (*func)(void)) {
-    Task    *t = kmalloc(sizeof(Task));
-    uint8_t *s = (uint8_t *)pmm_alloc_page();  // 4 KB, page-aligned, always fits
+    Task    *task = kmalloc(sizeof(Task));
+    uint8_t *stack = (uint8_t *)pmm_alloc_page();  // 4 KB, page-aligned, always fits
 
     // Build initial register frame from the top of the stack downward.
     // iretq frame: five slots (64-bit always pops all five)
-    uint64_t *sp = (uint64_t *)(s + TASK_STACK_SIZE);
-    *--sp = 0x10ULL;                         // ss
-    *--sp = (uint64_t)(s + TASK_STACK_SIZE); // rsp: task's own stack top
-    *--sp = 0x202ULL;                        // rflags: IF=1
-    *--sp = 0x08ULL;                         // cs
-    *--sp = (uint64_t)task_trampoline;       // rip: trampoline calls r15 then task_exit
+    uint64_t *stack_pointer = (uint64_t *)(stack + TASK_STACK_SIZE);
+    *--stack_pointer = 0x10ULL;                         // ss
+    *--stack_pointer = (uint64_t)(stack + TASK_STACK_SIZE); // rsp: task's own stack top
+    *--stack_pointer = 0x202ULL;                        // rflags: IF=1
+    *--stack_pointer = 0x08ULL;                         // cs
+    *--stack_pointer = (uint64_t)task_trampoline;       // rip: trampoline calls r15 then task_exit
+    
+    
     // saved registers: r15 carries the real entry point, rest zeroed
-    for (int i = 0; i < 14; i++) *--sp = 0; // rax .. r14
-    *--sp = (uint64_t)func;                  // r15
+    for (int i = 0; i < 14; i++){
+      *--stack_pointer = 0; // rax .. r14
+    }
+
+    *--stack_pointer = (uint64_t)func;                  // r15
 
 
-    t->rsp       = (uint64_t)sp;
-    t->stack     = s;
-    t->tid       = next_tid++;
-    t->switches  = 0;
-    t->wake_time = 0;
-    t->name      = name;
+    task->rsp       = (uint64_t)stack_pointer;
+    task->stack     = stack;
+    task->tid       = next_tid++;
+    task->switches  = 0;
+    task->wake_time = 0;
+    task->name      = name;
     
 
     // Insert into circular list right after current task
-    t->next       = current->next;
-    current->next = t;
+    task->next       = current->next;
+    current->next = task;
 
-    return t;
+    return task;
 }
 
 // Removes current from the circular list and returns the next task's rsp.
