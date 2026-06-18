@@ -7,21 +7,17 @@
 #include "console.h"
 #include "types.h"
 #include <stdint.h>
-static FrameBuffer frame_buffer;
+
+FrameBuffer frame_buffer;
 
 void* frame_buffer_in_memory;
 
 #define PIXEL_FORMAT 4
+
 FrameBuffer* get_framebuffer(){
 	return &frame_buffer;
 }
 
-void init_frambuffer(FrameBuffer* in_framebuffer){
-	copy_memory(get_framebuffer(), in_framebuffer, sizeof(struct FrameBuffer));
-	console_init();
-	clear();
-	printf("Horizontal %d\n", frame_buffer.horizontal_resolution);
-}
 
 void plot_pixel(int x, int y, uint32_t pixel){
   FrameBuffer *framebuffer = get_framebuffer();

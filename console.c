@@ -23,10 +23,14 @@ static int console_line_char_counter = 0;
 static uint32_t console_max_lines = 0;
 static uint32_t console_max_cols  = 0;
 
-void console_init(void) {
-  FrameBuffer *fb = get_framebuffer();
-  console_max_lines = (fb->vertical_resolution / 16) - 1;
-  console_max_cols  = fb->horizontal_resolution / 8;
+void console_init(FrameBuffer* in_framebuffer) {
+
+	copy_memory(&frame_buffer, in_framebuffer, sizeof(struct FrameBuffer));
+
+  console_max_lines = (frame_buffer.vertical_resolution / 16) - 1;
+  console_max_cols  = frame_buffer.horizontal_resolution / 8;
+
+	clear();
 }
 
 static void console_newline(void) {

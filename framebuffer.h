@@ -26,6 +26,6 @@ void clear();
 
 FrameBuffer* get_framebuffer();
 
-void init_frambuffer(FrameBuffer* in_framebuffer);
+extern FrameBuffer frame_buffer;
 
 #endif

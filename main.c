@@ -40,16 +40,16 @@ void main(BootInfo* boot_info){
 
   serial_init();
 
-	init_frambuffer(&boot_info->frame_buffer);	
+	console_init(&boot_info->frame_buffer);	
+
+	printf("========================|| pkernel ||===============================\n");
 
   uint64_t xsdt_address = boot_info->xsdt_address;
-
-  
-	printf("pkernel\n");
 
   init_gdt();
   init_idt();
   init_lapic();
+
   sched_init();
   set_idt_gate(0x20, (uint64_t)irq_sched_handler);
   set_idt_gate(0x21, (uint64_t)irq_xhci_handler);

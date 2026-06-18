@@ -1,9 +1,10 @@
 #ifndef __CONSOLE_H__
 #define __CONSOLE_H__
 
+#include "framebuffer.h"
 #include "types.h"
 
-void console_init(void);
+void console_init(FrameBuffer* framebuffer);
 
 void print(const char* string);
 
