@@ -23,6 +23,25 @@ static int console_line_char_counter = 0;
 static uint32_t console_max_lines = 0;
 static uint32_t console_max_cols  = 0;
 
+// Software text buffer for the console. The framebuffer (VRAM) is
+// write-combining memory: reading back from it is extremely slow, so we never
+// scroll by copying pixels out of VRAM. Instead every glyph that is drawn is
+// also recorded here, and scrolling shifts this RAM buffer then redraws the
+// screen with pure writes.
+#define CONSOLE_BUF_LINES 128
+#define CONSOLE_BUF_COLS  256
+static char console_buffer[CONSOLE_BUF_LINES][CONSOLE_BUF_COLS];
+
+static void console_buffer_clear_line(uint32_t line) {
+  for (uint32_t col = 0; col < console_max_cols; col++)
+    console_buffer[line][col] = ' ';
+}
+
+static void console_buffer_clear(void) {
+  for (uint32_t line = 0; line < console_max_lines; line++)
+    console_buffer_clear_line(line);
+}
+
 void console_init(FrameBuffer* in_framebuffer) {
 
 	copy_memory(&frame_buffer, in_framebuffer, sizeof(struct FrameBuffer));
@@ -30,7 +49,31 @@ void console_init(FrameBuffer* in_framebuffer) {
   console_max_lines = (frame_buffer.vertical_resolution / 16) - 1;
   console_max_cols  = frame_buffer.horizontal_resolution / 8;
 
+  // Clamp to the static buffer so high resolutions can't overflow it.
+  if (console_max_lines > CONSOLE_BUF_LINES) console_max_lines = CONSOLE_BUF_LINES;
+  if (console_max_cols  > CONSOLE_BUF_COLS)  console_max_cols  = CONSOLE_BUF_COLS;
+
+  console_buffer_clear();
 	clear();
+}
+
+// Redraw the whole text area from the RAM buffer. Only writes to VRAM.
+static void console_redraw(void) {
+  for (uint32_t line = 0; line < console_max_lines; line++) {
+    for (uint32_t col = 0; col < console_max_cols; col++) {
+      char c = console_buffer[line][col];
+      draw_character((unsigned char)(c ? c : ' '), col * 8, line * 16,
+                     white, background_color);
+    }
+  }
+}
+
+// Scroll up one line using the RAM buffer instead of reading back VRAM.
+static void console_scroll(void) {
+  for (uint32_t line = 1; line < console_max_lines; line++)
+    copy_memory(console_buffer[line - 1], console_buffer[line], console_max_cols);
+  console_buffer_clear_line(console_max_lines - 1);
+  console_redraw();
 }
 
 static void console_newline(void) {
@@ -38,7 +81,7 @@ static void console_newline(void) {
   console_current_line++;
   console_line_char_counter = 0;
   if (console_max_lines > 0 && (uint32_t)console_current_line >= console_max_lines) {
-    scroll_up();
+    console_scroll();
     console_current_line = (int)(console_max_lines - 1);
   }
 }
@@ -47,7 +90,8 @@ static void console_put_char(char c) {
   if (console_max_cols > 0 && (uint32_t)console_line_char_counter >= console_max_cols) {
     console_newline();
   }
-  //serial_putc(c);
+  serial_putc(c);
+  console_buffer[console_current_line][console_line_char_counter] = c;
   draw_character((unsigned char)c, console_line_char_counter * 8,
                  console_current_line * 16, white, background_color);
   console_line_char_counter++;
@@ -141,6 +185,7 @@ void print(const char* format){
 void console_backspace(void) {
   if (console_line_char_counter <= 0) return;
   console_line_char_counter--;
+  console_buffer[console_current_line][console_line_char_counter] = ' ';
   draw_character(' ', console_line_char_counter * 8,
                  console_current_line * 16, white, background_color);
   serial_putc('\b');
@@ -149,6 +194,7 @@ void console_backspace(void) {
 }
 
 void console_clear(void) {
+  console_buffer_clear();
   clear();
   console_current_line    = 0;
   console_line_char_counter = 0;
