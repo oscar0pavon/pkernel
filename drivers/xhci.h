@@ -155,21 +155,26 @@ struct XhciInputControlContext {
   uint32_t reserved[6];
 } __attribute__((packed));
 
-// Input Context = Control + Slot + EP0..EP1-IN (160 bytes)
+// Endpoint contexts are addressed by Device Context Index (DCI):
+//   DCI = endpoint_number * 2 + (direction == IN ? 1 : 0); EP0 = DCI 1.
+// ep[] is indexed by DCI-1, so ep[0] is EP0 (DCI 1), ep[2] is EP1-IN (DCI 3),
+// ep[4] is EP2-IN (DCI 5), etc. A device's interrupt endpoint can land at any
+// DCI, so the array must cover all 31 possible endpoint contexts -- writing the
+// context to a fixed slot (ep1in) made any non-EP1 device fail Configure
+// Endpoint with a Parameter Error (code 17).
+#define XHCI_MAX_EP_CTX 31
+
+// Input Context = Control + Slot + 31 endpoint contexts
 struct XhciInputContext {
-  struct XhciInputControlContext ctrl;   // offset 0x00
-  struct XhciSlotContext         slot;   // offset 0x20
-  struct XhciEndpointContext     ep0;    // offset 0x40  (ctx index 1)
-  struct XhciEndpointContext     ep1out; // offset 0x60  (ctx index 2)
-  struct XhciEndpointContext     ep1in;  // offset 0x80  (ctx index 3)
+  struct XhciInputControlContext ctrl;                 // offset 0x00
+  struct XhciSlotContext         slot;                 // offset 0x20
+  struct XhciEndpointContext     ep[XHCI_MAX_EP_CTX];  // offset 0x40, DCI 1..31
 } __attribute__((packed));
 
-// Output Device Context = Slot + EP0..EP1-IN (128 bytes; DCBAAP[slot] points here)
+// Output Device Context = Slot + 31 endpoint contexts (DCBAAP[slot] points here)
 struct XhciDeviceContext {
-  struct XhciSlotContext     slot;   // offset 0x00
-  struct XhciEndpointContext ep0;    // offset 0x20
-  struct XhciEndpointContext ep1out; // offset 0x40
-  struct XhciEndpointContext ep1in;  // offset 0x60
+  struct XhciSlotContext     slot;                 // offset 0x00
+  struct XhciEndpointContext ep[XHCI_MAX_EP_CTX];  // offset 0x20, DCI 1..31
 } __attribute__((packed));
 
 // ============================================================================

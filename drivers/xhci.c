@@ -432,6 +432,10 @@ int xhci_address_device(uint32_t slot_id, uint32_t port) {
   dev_port  = port;
   XDBG("Speed code: %d\n", speed);
 
+  // Diagnostic: identify each device as it enumerates. speed 1=Full 2=Low
+  // 3=High 4=Super. (A USB-2.0 keyboard is Low/Full speed.)
+  printf("USB: port %d slot %d speed %d\n", port + 1, slot_id, speed);
+
   // EP0 max packet size for initial enumeration (xHCI spec 4.8.2.1)
   // Speed: 1=Full, 2=Low, 3=High, 4=SuperSpeed
   uint16_t mps;
@@ -463,15 +467,15 @@ int xhci_address_device(uint32_t slot_id, uint32_t port) {
   // Slot Context dw1: Root Hub Port Number (1-indexed)
   input_ctx.slot.dw1 = (uint32_t)(port + 1) << 16;
 
-  // EP0 Endpoint Context
+  // EP0 Endpoint Context (DCI 1 -> ep[0])
   // dw1: CErr=3, EP Type=Control Bidirectional(4), Max Packet Size
-  input_ctx.ep0.dw1 = (3U << 1) | (XHCI_EP_TYPE_CONTROL << 3) | ((uint32_t)mps << 16);
+  input_ctx.ep[0].dw1 = (3U << 1) | (XHCI_EP_TYPE_CONTROL << 3) | ((uint32_t)mps << 16);
   // dw2/dw3: TR Dequeue Pointer | DCS=1
   uint64_t ep0_addr = (uint64_t)&ep0_ring[0];
-  input_ctx.ep0.dw2 = (uint32_t)(ep0_addr & ~0xFULL) | 1;
-  input_ctx.ep0.dw3 = (uint32_t)(ep0_addr >> 32);
+  input_ctx.ep[0].dw2 = (uint32_t)(ep0_addr & ~0xFULL) | 1;
+  input_ctx.ep[0].dw3 = (uint32_t)(ep0_addr >> 32);
   // dw4: Average TRB Length = 8 (standard for control endpoints)
-  input_ctx.ep0.dw4 = 8;
+  input_ctx.ep[0].dw4 = 8;
 
   XDBG("Input Context:  0x%lx\n", (uint64_t)&input_ctx);
   XDBG("Device Context: 0x%lx\n", (uint64_t)&device_ctx);
@@ -774,7 +778,7 @@ int xhci_evaluate_context(uint32_t slot_id, uint8_t new_mps) {
   memset((void *)&input_ctx, 0, sizeof(input_ctx));
   input_ctx.ctrl.drop_flags = 0;
   input_ctx.ctrl.add_flags  = (1U << 1);  // A1 = EP0 only
-  input_ctx.ep0.dw1 = (3U << 1) | (XHCI_EP_TYPE_CONTROL << 3) | ((uint32_t)new_mps << 16);
+  input_ctx.ep[0].dw1 = (3U << 1) | (XHCI_EP_TYPE_CONTROL << 3) | ((uint32_t)new_mps << 16);
 
   volatile struct XhciTRB *trb = &command_ring[command_ring_enqueue];
   trb->Parameter = (uint64_t)&input_ctx;
@@ -972,21 +976,31 @@ int xhci_set_configuration(uint32_t slot_id, uint8_t config_val) {
     while (uf > 1 && xhci_interval < 15) { uf >>= 1; xhci_interval++; }
   }
 
-  // Build Input Context for Configure Endpoint
+  // Diagnostic: which device is this, and the endpoint params feeding the
+  // Configure Endpoint command (the step failing with parameter error / code 17).
+  printf("USB: slot %d class 0x%x proto 0x%x ep%d mps %d intv %d->%d\n",
+         slot_id, iface_class, iface_protocol, ep1_in_number,
+         ep1_in_mps, ep1_in_interval, xhci_interval);
+
+  // Build Input Context for Configure Endpoint. The interrupt endpoint context
+  // must be placed at its real Device Context Index (ep[ep_ctx_idx - 1]), not a
+  // fixed slot -- e.g. an EP2-IN endpoint lives at DCI 5, EP3-IN at DCI 7.
+  volatile struct XhciEndpointContext *epc = &input_ctx.ep[ep_ctx_idx - 1];
+
   memset((void *)&input_ctx, 0, sizeof(input_ctx));
-  // A0=slot, A{ep_ctx_idx}=EP1 IN
+  // A0=slot, A{ep_ctx_idx}=interrupt IN endpoint
   input_ctx.ctrl.add_flags = (1U << 0) | (1U << ep_ctx_idx);
-  // Slot: update ContextEntries to include EP1 IN
+  // Slot: update ContextEntries to the highest DCI in use
   input_ctx.slot.dw0 = ((uint32_t)dev_speed << 20) | (ep_ctx_idx << 27);
   input_ctx.slot.dw1 = (uint32_t)(dev_port + 1) << 16;
-  // EP1 IN Endpoint Context
-  input_ctx.ep1in.dw0 = (uint32_t)xhci_interval << 16;
+  // Interrupt IN Endpoint Context
+  epc->dw0 = (uint32_t)xhci_interval << 16;
   // CErr=3, EPType=Interrupt IN, MaxPacketSize
-  input_ctx.ep1in.dw1 = (3U << 1) | (XHCI_EP_TYPE_INTERRUPT_IN << 3) | ((uint32_t)ep1_in_mps << 16);
+  epc->dw1 = (3U << 1) | (XHCI_EP_TYPE_INTERRUPT_IN << 3) | ((uint32_t)ep1_in_mps << 16);
   uint64_t ep1in_addr = (uint64_t)&ep1in_ring[0];
-  input_ctx.ep1in.dw2 = (uint32_t)(ep1in_addr & ~0xFULL) | 1;  // DCS=1
-  input_ctx.ep1in.dw3 = (uint32_t)(ep1in_addr >> 32);
-  input_ctx.ep1in.dw4 = ep1_in_mps;  // AvgTRBLength = MPS for interrupt
+  epc->dw2 = (uint32_t)(ep1in_addr & ~0xFULL) | 1;  // DCS=1
+  epc->dw3 = (uint32_t)(ep1in_addr >> 32);
+  epc->dw4 = ep1_in_mps;  // AvgTRBLength = MPS for interrupt
 
   // Send Configure Endpoint command
   volatile struct XhciTRB *trb = &command_ring[command_ring_enqueue];
