@@ -150,6 +150,25 @@ const char* get_hex_string(uint64_t value) {
     return hex_buffer;
 }
 
+// Format `value` as hex into `out` with no leading zeros (except value 0 -> "0").
+// `uppercase` selects A-F vs a-f. Returns the number of digits written.
+// out must hold at least 17 bytes. printf() applies any width/zero padding.
+static int hex_to_buf(uint64_t value, char *out, int uppercase) {
+    const char *table = uppercase ? "0123456789ABCDEF" : "0123456789abcdef";
+    char tmp[16];
+    int n = 0;
+
+    do {
+        tmp[n++] = table[value & 0x0F];
+        value >>= 4;
+    } while (value);
+
+    for (int i = 0; i < n; i++)
+        out[i] = tmp[n - 1 - i];   // reverse: least-significant nibble was first
+    out[n] = '\0';
+    return n;
+}
+
 
 void print_uint(uint32_t number){
 
@@ -222,8 +241,26 @@ void printf(const char* format, ...) {
     while (*format) {
         if (*format == '%') {
             format++; // Move past '%'
-            
-            // Check for 64-bit Long modifier (e.g., %lx or %llx)
+
+            // Conversion flags / width, parsed in printf-order:
+            //   '#'  alternate form -> emit a "0x" prefix for hex
+            //   '0'  pad to `width` with leading zeros instead of spaces
+            //   N    minimum field width (e.g. %08x, %016lx, %2x)
+            int alt      = 0;   // '#'
+            int zero_pad = 0;   // '0'
+            int width    = 0;
+
+            while (*format == '#' || *format == '0') {
+                if (*format == '#') alt = 1;
+                else                zero_pad = 1;
+                format++;
+            }
+            while (*format >= '0' && *format <= '9') {
+                width = width * 10 + (*format - '0');
+                format++;
+            }
+
+            // Length modifier: 'l' / 'll' selects a 64-bit argument.
             int is_long = 0;
             if (*format == 'l') {
                 is_long = 1;
@@ -236,11 +273,11 @@ void printf(const char* format, ...) {
             if (*format == 'd') {
                 if (is_long) {
                     // Handle printing 64-bit signed/unsigned longs if you have a helper
-                    print_uint(va_arg(arguments, uint64_t)); 
+                    print_uint(va_arg(arguments, uint64_t));
                 } else {
                     print_uint(va_arg(arguments, int));
                 }
-            } 
+            }
             else if (*format == 's') {
                 char *string = va_arg(arguments, char *);
                 // FIX RECURSION BUG: Print characters directly instead of calling printf() recursively!
@@ -252,29 +289,43 @@ void printf(const char* format, ...) {
                     }
                     string++;
                 }
-            } 
-            else if (*format == 'x') {
+            }
+            else if (*format == 'x' || *format == 'X') {
+                int uppercase = (*format == 'X');
+
                 uint64_t number;
                 if (is_long) {
                     // CRITICAL FIX: Extract full 64-bit word from the variadic stack arguments
-                    number = va_arg(arguments, uint64_t); 
+                    number = va_arg(arguments, uint64_t);
                 } else {
                     // Standard 32-bit hex, explicitly cast to unsigned to stop sign-extension
-                    number = va_arg(arguments, uint32_t); 
+                    number = va_arg(arguments, uint32_t);
                 }
-                
-                const char *hex = get_hex_string(number);
-                
-                while (*hex) {
-                    console_put_char(*hex);
-                    hex++;
+
+                char digits[17];
+                int len = hex_to_buf(number, digits, uppercase);
+
+                // The "0x" prefix counts toward the requested field width.
+                int pad = width - len - (alt ? 2 : 0);
+
+                if (zero_pad) {
+                    // 0x first, then zeros, then digits:  0x0000012b1
+                    if (alt) { console_put_char('0'); console_put_char(uppercase ? 'X' : 'x'); }
+                    while (pad-- > 0) console_put_char('0');
+                } else {
+                    // spaces first, then 0x, then digits:  "    0x12b1"
+                    while (pad-- > 0) console_put_char(' ');
+                    if (alt) { console_put_char('0'); console_put_char(uppercase ? 'X' : 'x'); }
                 }
-            } 
+
+                for (int i = 0; i < len; i++)
+                    console_put_char(digits[i]);
+            }
             else if (*format == 'b') {
                 // TODO: print binary
             }
             format++;
-        } 
+        }
         else if (*format == '\n') {
             format++;
             console_newline();
