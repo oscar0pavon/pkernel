@@ -57,23 +57,29 @@ void console_init(FrameBuffer* in_framebuffer) {
 	clear();
 }
 
-// Redraw the whole text area from the RAM buffer. Only writes to VRAM.
-static void console_redraw(void) {
-  for (uint32_t line = 0; line < console_max_lines; line++) {
+// Scroll up one line. The RAM buffer mirrors exactly what is on screen, so we
+// only repaint the cells whose glyph actually changes. Trailing blanks (most of
+// a text screen) stay blank between lines and are skipped, making scroll cost
+// proportional to the real text width rather than the whole framebuffer.
+static void console_scroll(void) {
+  for (uint32_t line = 0; line + 1 < console_max_lines; line++) {
     for (uint32_t col = 0; col < console_max_cols; col++) {
-      char c = console_buffer[line][col];
-      draw_character((unsigned char)(c ? c : ' '), col * 8, line * 16,
-                     white, background_color);
+      char next = console_buffer[line + 1][col];
+      if (console_buffer[line][col] != next) {
+        console_buffer[line][col] = next;
+        draw_character((unsigned char)next, col * 8, line * 16,
+                       white, background_color);
+      }
     }
   }
-}
-
-// Scroll up one line using the RAM buffer instead of reading back VRAM.
-static void console_scroll(void) {
-  for (uint32_t line = 1; line < console_max_lines; line++)
-    copy_memory(console_buffer[line - 1], console_buffer[line], console_max_cols);
-  console_buffer_clear_line(console_max_lines - 1);
-  console_redraw();
+  // Clear the newly exposed bottom line, again only where it isn't already blank.
+  uint32_t last = console_max_lines - 1;
+  for (uint32_t col = 0; col < console_max_cols; col++) {
+    if (console_buffer[last][col] != ' ') {
+      console_buffer[last][col] = ' ';
+      draw_character(' ', col * 8, last * 16, white, background_color);
+    }
+  }
 }
 
 static void console_newline(void) {
