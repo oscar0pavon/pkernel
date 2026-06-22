@@ -1,5 +1,6 @@
 #include "console.h"
 #include "memory.h"
+#include "framebuffer.h"
 #include <stdint.h>
 
 // Page table entry bitmask flags defined by x86-64 hardware architecture
@@ -17,6 +18,42 @@ aligned4k static uint64_t kernel_pd2[512]; // Maps 2GB - 3GB
 aligned4k static uint64_t kernel_pd3[512]; // Maps 3GB - 4GB (Includes your
 aligned4k static uint64_t kernel_pd_xhci[512];// high xHCI MMIO / ACPI zones)
 
+
+#define PAGE_2MB 0x200000ULL
+#define PAGE_ADDR_MASK ~0xFFFULL
+
+// Return the page directory for a given PDPT slot, allocating and zeroing a
+// fresh one from the physical allocator if that slot is not present yet.
+// Only the first 512 GB (PML4 entry 0) is handled here, which is where every
+// framebuffer / MMIO BAR a real UEFI machine reports lives in practice.
+static uint64_t *paging_get_pd(uint64_t pdpt_index) {
+  if (!(kernel_pdpt[pdpt_index] & PAGE_PRESENT)) {
+    uint64_t *pd = (uint64_t *)pmm_alloc_page();
+    for (int i = 0; i < 512; i++)
+      pd[i] = 0;
+    kernel_pdpt[pdpt_index] = (uint64_t)pd | PAGE_PRESENT | PAGE_READWRITE;
+  }
+  return (uint64_t *)(kernel_pdpt[pdpt_index] & PAGE_ADDR_MASK);
+}
+
+// Identity-map [phys, phys+size) using 2 MB huge pages. Safe to call over a
+// region that is already partly mapped; it just rewrites those entries.
+static void identity_map_region(uint64_t phys, uint64_t size) {
+  uint64_t start = phys & ~(PAGE_2MB - 1);
+  uint64_t end = (phys + size + PAGE_2MB - 1) & ~(PAGE_2MB - 1);
+
+  for (uint64_t addr = start; addr < end; addr += PAGE_2MB) {
+    uint64_t pml4_index = (addr >> 39) & 0x1FF;
+    uint64_t pdpt_index = (addr >> 30) & 0x1FF;
+    uint64_t pd_index = (addr >> 21) & 0x1FF;
+
+    if (pml4_index != 0)
+      continue; // beyond the 512 GB window we link into PML4[0]
+
+    uint64_t *pd = paging_get_pd(pdpt_index);
+    pd[pd_index] = addr | PAGE_PRESENT | PAGE_READWRITE | PAGE_HUGE;
+  }
+}
 
 void init_paging(void) {
   // 1. Zero out the tables completely to wipe any random RAM junk bytes
@@ -68,6 +105,17 @@ void init_paging(void) {
     kernel_pd_xhci[i] = (0x800000000ULL + chunk_2mb) 
       | PAGE_PRESENT | PAGE_READWRITE | PAGE_HUGE;
   }
+
+  // 4b. The GOP framebuffer base is a raw physical address chosen by the
+  // firmware. On real hardware it frequently sits ABOVE 4 GB, outside the
+  // windows mapped above, so the first printf after the CR3 load would fault
+  // and triple-fault the machine. QEMU keeps it low, which is why this only
+  // breaks on metal. Map its actual physical range explicitly.
+  uint64_t fb_base = frame_buffer.vram;
+  uint64_t fb_size = (uint64_t)frame_buffer.pixel_per_scan_line *
+                     frame_buffer.vertical_resolution * 4;
+  if (fb_base && fb_size)
+    identity_map_region(fb_base, fb_size);
 
   // 5. Load your new unrestricted page tables directly into the CPU!
   // Writing to CR3 forces the processor to instantly ditch UEFI's zombie maps.
