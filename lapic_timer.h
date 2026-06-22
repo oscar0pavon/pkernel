@@ -10,4 +10,7 @@ void     lapic_timer_isr(void);
 uint64_t lapic_timer_get_ticks(void);
 uint64_t lapic_timer_uptime_ms(void);
 
+// Busy-wait `ms` milliseconds via the ACPI PM timer; safe before interrupts.
+void busy_wait_ms(uint32_t ms);
+
 #endif

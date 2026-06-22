@@ -87,3 +87,29 @@ uint64_t lapic_timer_get_ticks(void) {
 uint64_t lapic_timer_uptime_ms(void) {
     return (lapic_timer_hz > 0) ? (ticks * 1000ULL / lapic_timer_hz) : 0;
 }
+
+// Busy-wait `ms` milliseconds using the free-running ACPI PM timer. Usable
+// during early init before the periodic LAPIC timer / interrupts are running
+// (e.g. USB port-power debounce). Falls back to a crude pause loop if the PM
+// timer is unavailable.
+void busy_wait_ms(uint32_t ms) {
+    uint16_t pm_port = FADT ? (uint16_t)FADT->PMTimerBlock : 0;
+
+    if (pm_port) {
+        uint32_t pm_mask = (FADT->Flags & (1u << 8)) ? 0xFFFFFFFFu : 0x00FFFFFFu;
+        uint32_t target  = (uint32_t)((uint64_t)PM_TIMER_FREQ * ms / 1000);
+        uint32_t start   = input(pm_port) & pm_mask;
+        uint32_t elapsed = 0;
+        uint64_t spins   = 0;
+
+        // masked subtraction tolerates a single counter wrap
+        do {
+            elapsed = (input(pm_port) - start) & pm_mask;
+        } while (elapsed < target && ++spins < CALIBRATE_SPIN_LIMIT);
+        return;
+    }
+
+    // No PM timer: rough fallback, deliberately generous.
+    for (volatile uint64_t i = 0; i < (uint64_t)ms * 200000ULL; i++)
+        __asm__("pause");
+}

@@ -3,6 +3,7 @@
 #include <stdint.h>
 #include <string.h>
 #include "../memory.h"
+#include "../lapic_timer.h"
 
 int xhci_debug = 0;
 
@@ -298,6 +299,25 @@ void xhci_scan_ports(void) {
 
   uint32_t max_ports = xhci_dev.max_ports;
   XDBG("Scanning %d ports...\n", max_ports);
+
+  // Assert Port Power (PORTSC bit 9) on every root-hub port. After HCRST the
+  // controller can leave ports unpowered; a connected device then gets no VBUS,
+  // its Current Connect Status stays 0, and a keyboard's LED stays dark -- so
+  // nothing is ever detected. QEMU powers its port by default, which hid this.
+  // Preserve the RW1C bits when writing: PED (bit 1) and the change bits
+  // (17..23) are write-1-to-clear, so a stray 1 there would disable the port or
+  // wipe status.
+  for (uint32_t port = 0; port < max_ports; port++) {
+    uint32_t portsc = xhci_dev.op_regs->PortRegisterSet[port].PortSc;
+    if (!(portsc & (1 << 9))) {
+      uint32_t v = (portsc & ~((1u << 1) | (0x7Fu << 17))) | (1u << 9);
+      xhci_dev.op_regs->PortRegisterSet[port].PortSc = v;
+    }
+  }
+
+  // USB2 spec: allow time for port power to stabilise and a connected device to
+  // debounce and assert CCS before we sample and reset the ports.
+  busy_wait_ms(120);
 
   for (uint32_t port = 0; port < max_ports; port++) {
     uint32_t portsc = xhci_dev.op_regs->PortRegisterSet[port].PortSc;
