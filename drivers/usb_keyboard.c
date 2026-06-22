@@ -22,7 +22,9 @@ static const char kbd_ascii[2][57] = {
      '}', '|', 0,   ':', '"',  '~', '<',  '>',  '?'},
 };
 
-static volatile uint8_t kbd_report[8] = {0};
+// Large enough for a non-boot keyboard's native report (endpoint MPS can be 32+
+// bytes), not just the 8-byte boot report.
+static volatile uint8_t kbd_report[64] = {0};
 static uint8_t kbd_prev_kc[6] = {0};
 
 // Decode one 8-byte HID Boot Protocol report and enqueue changed keys.
@@ -51,10 +53,11 @@ static void xhci_process_key_report(void) {
 // Called once from usb_kbd_attach() to prime the pipeline, then again
 // at the end of every usb_kbd_isr() to re-arm for the next report.
 static void xhci_queue_kbd_trb(void) {
-  // Boot Protocol reports are 8 bytes ([modifier][reserved][6 keycodes]); that
-  // is also the size of kbd_report, so never request more than that even if the
-  // endpoint's max packet size is larger (this keyboard reports MPS 32).
-  uint16_t report_sz = sizeof(kbd_report);
+  // Request a full endpoint packet so a non-boot keyboard's native report is
+  // captured intact (requesting fewer bytes than it sends would babble), capped
+  // to the report buffer.
+  uint16_t report_sz = ep1_in_mps ? ep1_in_mps : 8;
+  if (report_sz > sizeof(kbd_report)) report_sz = sizeof(kbd_report);
 
   volatile struct XhciTRB *trb = &ep1in_ring[ep1in_enqueue];
   trb->Parameter = (uint64_t)kbd_report;
@@ -100,6 +103,11 @@ void usb_kbd_isr(void) {
 
     if (trb_type == TRB_TYPE_TRANSFER_EVENT &&
         (completion_code == 1 || completion_code == 13)) {
+      // Diagnostic: dump the raw report so the native (non-boot) layout is
+      // visible. Remove once the report format is confirmed.
+      printf("RPT: %02x %02x %02x %02x %02x %02x %02x %02x\n",
+             kbd_report[0], kbd_report[1], kbd_report[2], kbd_report[3],
+             kbd_report[4], kbd_report[5], kbd_report[6], kbd_report[7]);
       xhci_process_key_report();
       got_transfer = 1;
     }
@@ -187,8 +195,14 @@ void usb_kbd_attach(uint32_t slot_id) {
   XDBG("=== Arming keyboard interrupt (slot %d, EP%d IN, MPS=%d) ===\n",
        slot_id, ep1_in_number, ep1_in_mps);
 
-  // Switch to Boot Protocol so we receive standard 8-byte reports.
-  usb_kbd_set_boot_protocol(slot_id);
+  // Only request Boot Protocol if the interface advertises the Boot subclass
+  // (bInterfaceSubClass == 1). Sending SET_PROTOCOL to a non-boot device STALLs
+  // and halts EP0, breaking later control transfers.
+  if (iface_subclass == 1)
+    usb_kbd_set_boot_protocol(slot_id);
+  else
+    printf("USB: keyboard is non-boot (subclass %d); using native reports\n",
+           iface_subclass);
 
   // The HID Report descriptor isn't needed to read boot reports; fetch it for
   // debug if the device offers it, but don't fail the attach when it stalls.

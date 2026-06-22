@@ -64,7 +64,7 @@ static uint32_t dev_port  = 0;
 // Interface descriptor class/subclass/protocol captured during Step 11,
 // used after configuration to pick the matching USB class driver.
 static uint8_t iface_class    = 0;
-static uint8_t iface_subclass = 0;
+uint8_t        iface_subclass = 0;
 static uint8_t iface_protocol = 0;
 // bInterfaceNumber of the HID interface; used as wIndex for class requests
 // (SET_PROTOCOL, GET HID Report descriptor) that target the interface.

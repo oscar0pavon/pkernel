@@ -259,6 +259,7 @@ extern uint8_t  ep1_in_interval;
 extern uint8_t  ep1_in_number;
 extern uint16_t hid_report_len;
 extern uint8_t  iface_number;
+extern uint8_t  iface_subclass;
 
 extern uint32_t command_ring_enqueue;
 extern uint32_t command_ring_cycle;
