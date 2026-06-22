@@ -54,6 +54,11 @@ void setup_pci() {
   static PciDevice pci_devices[MAX_PCI_DEVICES];
   int count = get_pci_list(pci_devices, MAX_PCI_DEVICES);
 
+  // A board can expose several xHCI controllers (e.g. the Intel PCH plus a
+  // discrete ASMedia for the 10G/20G ports). They share the single global
+  // xhci_dev, so probe them one at a time and stop on the first that actually
+  // has a device connected — otherwise a later controller's init would clobber
+  // the state of the one holding our keyboard/mouse.
   for (int i = 0; i < count; i++) {
     PciDevice *d = &pci_devices[i];
 
@@ -61,22 +66,35 @@ void setup_pci() {
         d->subclass == PCI_SUBCLASS_USB_CONTROLLER &&
         d->prog_if == PCI_INTERFACE_XHCI) {
 
-      xhci_dev.pci_regs = d->config_space;
-
       uint32_t bar0 = d->config_space[4];
       uint32_t bar1 = d->config_space[5];
 
-      xhci_dev.base_mmio = (bar0 & 0xFFFFFFF0);
+      uint64_t base = (bar0 & 0xFFFFFFF0);
       if ((bar0 & 0x06) == 0x04) {
-        xhci_dev.base_mmio |= ((uint64_t)bar1 << 32);
+        base |= ((uint64_t)bar1 << 32);
       }
+
+      printf("xHCI controller %02x:%02x.%x at MMIO 0x%lx\n",
+             d->bus, d->device, d->function, base);
+
+      xhci_dev.pci_regs  = d->config_space;
+      xhci_dev.base_mmio = base;
 
       // The BAR can sit far above the low 4 GB the kernel maps at boot, so map
       // its MMIO window before the driver dereferences it. 64 KB covers the
       // xHCI capability/operational/runtime/doorbell register file.
-      paging_map_mmio(xhci_dev.base_mmio, 0x10000);
+      paging_map_mmio(base, 0x10000);
 
       init_xhci_driver();
+
+      // init_xhci_driver() resets the controller, starts it, and scans its
+      // root-hub ports. If something enumerated, this is the controller to
+      // keep; leave xhci_dev pointing at it and stop probing.
+      if (xhci_dev.device_attached) {
+        printf("xHCI: device found on controller %02x:%02x.%x\n",
+               d->bus, d->device, d->function);
+        break;
+      }
     }
   }
 }

@@ -179,6 +179,11 @@ typedef struct XHCIDevice {
   uint64_t base_mmio;
   uint32_t max_ports;
 
+  // Set to 1 once a device has been fully enumerated (addressed + configured)
+  // on this controller. setup_pci() uses it to decide whether to keep probing
+  // the remaining xHCI controllers or stop on this one.
+  int device_attached;
+
   // Register pointers
   volatile uint32_t *pci_regs;
   volatile XhciCapabilityRegs *cap_regs;

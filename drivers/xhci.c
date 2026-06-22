@@ -459,6 +459,7 @@ void xhci_address_device(uint32_t slot_id, uint32_t port) {
 
   // Enumeration done. Hand the device to the matching USB class driver
   // (HID keyboard today, mass storage / disk later) based on its interface.
+  xhci_dev.device_attached = 1;
   usb_attach_device(slot_id, iface_class, iface_subclass, iface_protocol);
 }
 
@@ -1070,6 +1071,7 @@ void xhci_enable_msi(uint8_t vector) {
 void init_xhci_driver(void) {
   printf("xHCI Driver - MMIO Base: 0x%lx\n", xhci_dev.base_mmio);
 
+  xhci_dev.device_attached = 0;
   xhci_dev.cap_regs = (XhciCapabilityRegs *)xhci_dev.base_mmio;
   uint64_t op_base = xhci_dev.base_mmio + xhci_dev.cap_regs->CapLength;
   xhci_dev.op_regs = (XhciOperationalRegs *)op_base;
