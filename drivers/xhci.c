@@ -247,8 +247,17 @@ void xhci_start_controller(void) {
   uint32_t max_slots = (xhci_dev.cap_regs->HcsParams1 & 0xFF);
   XDBG("Hardware supports max %d slots\n", max_slots);
 
-  xhci_dev.op_regs->Config = 1;
-  XDBG("CONFIG set to 1 slot.\n");
+  // Enable every slot the controller offers (clamped to the DCBAA size: slot
+  // ids index dcbaap[], and entry 0 is the scratchpad pointer). QEMU presents a
+  // single device, but a real root hub has many devices -- with only 1 slot the
+  // first device consumes it and every other Enable Slot fails (code 9).
+  uint32_t slots_en = max_slots;
+  uint32_t max_dcbaa_slots = (sizeof(dcbaap) / sizeof(dcbaap[0])) - 1;
+  if (slots_en > max_dcbaa_slots) slots_en = max_dcbaa_slots;
+  if (slots_en == 0)              slots_en = 1;
+
+  xhci_dev.op_regs->Config = slots_en;
+  XDBG("CONFIG set to %d slots.\n", slots_en);
 
   uint32_t hcs2 = xhci_dev.cap_regs->HcsParams2;
   // 10-bit field: HcsParams2[31:27] = high 5 bits, HcsParams2[25:21] = low 5 bits
@@ -347,6 +356,12 @@ void xhci_scan_ports(void) {
       }
 
       xhci_enable_slot(port);
+
+      // The driver drives a single device context at a time, so once a class
+      // driver has claimed a device (e.g. the keyboard), stop scanning -- a
+      // later port would otherwise overwrite the shared context.
+      if (xhci_dev.device_attached)
+        break;
     }
   }
 
@@ -370,7 +385,37 @@ void xhci_enable_slot(uint32_t port) {
   XDBG("Port %d -> slot %d assigned\n", port + 1, slot_id);
   XDBG("=== STEP 7: COMPLETE ===\n\n");
 
-  xhci_address_device(slot_id, port);
+  // Enumerate the device. If no class driver kept it (failed enumeration or
+  // unsupported class), free the slot so the next root-hub device can reuse it
+  // -- the driver shares a single device context, so stale slots must not be
+  // left pointing at it.
+  if (!xhci_address_device(slot_id, port))
+    xhci_disable_slot(slot_id);
+}
+
+// ============================================================================
+// DISABLE SLOT (xHCI spec 4.6.4): release a slot back to the controller.
+// The Slot ID rides in Control bits [31:24], so build the TRB inline rather
+// than going through xhci_send_command().
+// ============================================================================
+void xhci_disable_slot(uint32_t slot_id) {
+  XDBG("=== Disable Slot %d ===\n", slot_id);
+
+  volatile struct XhciTRB *trb = &command_ring[command_ring_enqueue];
+  trb->Parameter = 0;
+  trb->Status    = 0;
+  trb->Control   = (TRB_TYPE_DISABLE_SLOT << 10) | (slot_id << 24) | command_ring_cycle;
+
+  command_ring_enqueue++;
+  if (command_ring_enqueue == 255) {
+    command_ring[255].Control = (TRB_TYPE_LINK << 10) | (1 << 1) | command_ring_cycle;
+    command_ring_cycle ^= 1;
+    command_ring_enqueue = 0;
+  }
+
+  xhci_dev.doorbell_regs[0] = 0;
+  xhci_poll_event_ring();      // wait for the command to complete
+  dcbaap[slot_id] = 0;         // drop the (shared) device-context pointer
 }
 
 // ============================================================================
@@ -378,7 +423,7 @@ void xhci_enable_slot(uint32_t port) {
 // Builds Input Context with Slot + EP0, sets DCBAAP[slot], sends
 // Address Device command (BSR=0 → controller issues USB SET_ADDRESS).
 // ============================================================================
-void xhci_address_device(uint32_t slot_id, uint32_t port) {
+int xhci_address_device(uint32_t slot_id, uint32_t port) {
   XDBG("=== STEP 8: Address Device (slot %d, port %d) ===\n", slot_id, port + 1);
 
   uint32_t portsc = xhci_dev.op_regs->PortRegisterSet[port].PortSc;
@@ -455,32 +500,46 @@ void xhci_address_device(uint32_t slot_id, uint32_t port) {
   uint32_t result = xhci_poll_event_ring();
   if (result == 0) {
     printf("ERROR: Address Device failed on slot %d\n", slot_id);
-    return;
+    return 0;
   }
 
   XDBG("Slot %d is now in Addressed state.\n", slot_id);
   XDBG("=== STEP 8: COMPLETE ===\n\n");
 
-  if (!xhci_get_descriptor(slot_id, USB_DESC_DEVICE, 18)) return;
+  // Read only the first 8 bytes of the device descriptor first. That is enough
+  // to learn the real EP0 max packet size (bMaxPacketSize0 at offset 7) and is
+  // guaranteed to fit one default-size (8-byte) packet. Requesting the full 18
+  // bytes up front makes a full-speed device whose EP0 is actually 16/32/64
+  // bytes return more than 8 bytes per packet -> the controller babbles
+  // (transfer completion code 3).
+  if (!xhci_get_descriptor(slot_id, USB_DESC_DEVICE, 8)) return 0;
 
-  // Step 10: if reported EP0 MPS differs from the speed-based default, update it
+  // Step 10: if the reported EP0 MPS differs from the speed-based default,
+  // update the endpoint context before any further control transfers.
+  // (Skip SuperSpeed: there bMaxPacketSize0 is an exponent, already 512.)
   uint8_t reported_mps = descriptor_buffer[7];
-  if (reported_mps != mps) {
-    if (!xhci_evaluate_context(slot_id, reported_mps)) return;
+  if (speed != 4 && reported_mps != mps) {
+    if (!xhci_evaluate_context(slot_id, reported_mps)) return 0;
+    mps = reported_mps;
   } else {
     XDBG("=== STEP 10: EP0 MPS confirmed (%d), no update needed ===\n\n", mps);
   }
 
-  if (!xhci_get_config_descriptor(slot_id)) return;
+  // Now that EP0 is sized correctly, fetch the full device descriptor.
+  if (!xhci_get_descriptor(slot_id, USB_DESC_DEVICE, 18)) return 0;
+
+  if (!xhci_get_config_descriptor(slot_id)) return 0;
 
   // Step 12: SET_CONFIGURATION + Configure Endpoint
   uint8_t config_val = descriptor_buffer[5];  // bConfigurationValue from Config Descriptor
-  if (!xhci_set_configuration(slot_id, config_val)) return;
+  if (!xhci_set_configuration(slot_id, config_val)) return 0;
 
-  // Enumeration done. Hand the device to the matching USB class driver
-  // (HID keyboard today, mass storage / disk later) based on its interface.
-  xhci_dev.device_attached = 1;
-  usb_attach_device(slot_id, iface_class, iface_subclass, iface_protocol);
+  // Enumeration done. Hand the device to the matching USB class driver. Only
+  // keep the slot if a class driver claimed it (HID today); otherwise the
+  // caller frees it so the next root-hub device can use it.
+  int kept = usb_attach_device(slot_id, iface_class, iface_subclass, iface_protocol);
+  xhci_dev.device_attached = kept;
+  return kept;
 }
 
 // ============================================================================

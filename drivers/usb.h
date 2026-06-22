@@ -54,7 +54,9 @@
 // Called by the host controller once a device has been addressed and
 // configured. Routes the device to the matching class driver (HID keyboard
 // today; mass storage / disk later) based on its interface descriptor.
-void usb_attach_device(uint32_t slot_id, uint8_t iface_class,
-                       uint8_t iface_subclass, uint8_t iface_protocol);
+// Returns 1 if a class driver claimed the device, 0 if its class is
+// unsupported (the caller can then free the slot).
+int usb_attach_device(uint32_t slot_id, uint8_t iface_class,
+                      uint8_t iface_subclass, uint8_t iface_protocol);
 
 #endif

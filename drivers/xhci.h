@@ -30,6 +30,7 @@ typedef struct XhciDeviceContext XhciDeviceContext;
 #define TRB_TYPE_DATA_STAGE               3
 #define TRB_TYPE_STATUS_STAGE             4
 #define TRB_TYPE_ENABLE_SLOT              9
+#define TRB_TYPE_DISABLE_SLOT             10
 #define TRB_TYPE_ADDRESS_DEVICE           11
 #define TRB_TYPE_LINK                     6
 #define TRB_TYPE_CONFIGURE_ENDPOINT       12
@@ -222,7 +223,8 @@ uint32_t xhci_poll_event_ring(void);  // returns slot_id on success, 0 on error
 
 // Device enumeration
 void xhci_enable_slot(uint32_t port);
-void xhci_address_device(uint32_t slot_id, uint32_t port);
+int  xhci_address_device(uint32_t slot_id, uint32_t port);
+void xhci_disable_slot(uint32_t slot_id);
 
 // USB control transfers
 uint32_t xhci_poll_transfer_event(void);
