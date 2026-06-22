@@ -80,3 +80,8 @@ void parse_XSDT() {
     }
   }
 }
+
+void setup_acpi(uint64_t xsdt_address){
+	XSDT = (struct XSDT_t*)xsdt_address;
+	parse_XSDT();
+}

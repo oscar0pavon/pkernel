@@ -44,37 +44,37 @@ void main(BootInfo* boot_info){
 
 	printf("========================|| pkernel ||===============================\n");
 
-  uint64_t xsdt_address = boot_info->xsdt_address;
+  setup_acpi(boot_info->xsdt_address);
 
   init_gdt();
   init_idt();
+  
+  pmm_init(boot_info);
+
+  //init_paging();
+
   init_lapic();
+  lapic_timer_init(100);     // calibrate + start periodic timer at 100 Hz
 
   sched_init();
+  
   set_idt_gate(0x20, (uint64_t)irq_sched_handler);
   set_idt_gate(0x21, (uint64_t)irq_xhci_handler);
 
-  pmm_init(boot_info);
-
-  init_kernel_paging();
-
-
-	XSDT = (struct XSDT_t*)xsdt_address;
-	parse_XSDT();
   
   setup_pci();
-
-  lapic_timer_init(100);     // calibrate + start periodic timer at 100 Hz
-  task_create("idle", idle_task);
-
   xhci_enable_msi(0x21);     // configure PCI MSI + enable xHCI interrupter
-  asm volatile("sti");   // unmask interrupts — keyboard IRQs can now fire
 
-  printf("--You are in owner space now--\n");
+  task_create("idle", idle_task);
 
   task_create("counter", print_every_seconds);
 
   task_create("shell", shell_run);
+
+  asm volatile("sti");   // unmask interrupts — keyboard IRQs can now fire
+
+  
+  printf("--You are in owner space now--\n");
 
   hang();
 

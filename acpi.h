@@ -196,4 +196,6 @@ bool acpi_compare_signature(char* signature1, char* signature2);
 
 void parse_XSDT();
 
+void setup_acpi(uint64_t xsdt_address);
+
 #endif

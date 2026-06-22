@@ -18,7 +18,7 @@ aligned4k static uint64_t kernel_pd3[512]; // Maps 3GB - 4GB (Includes your
 aligned4k static uint64_t kernel_pd_xhci[512];// high xHCI MMIO / ACPI zones)
 
 
-void init_kernel_paging(void) {
+void init_paging(void) {
   // 1. Zero out the tables completely to wipe any random RAM junk bytes
   for (int i = 0; i < 512; i++) {
     kernel_pml4[i] = 0;
