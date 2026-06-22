@@ -35,7 +35,9 @@ aligned4k volatile XhciTRB ep1in_ring[256] = {0};
 
 // Scratchpad buffers (xHCI spec 4.20): controller-private memory pages.
 // DCBAAP[0] must point to this array before the Run bit is set.
-#define XHCI_MAX_SCRATCHPAD 64
+// QEMU asks for 0; real Intel controllers ask for more (e.g. 65), so keep
+// generous headroom here.
+#define XHCI_MAX_SCRATCHPAD 256
 aligned4k volatile uint64_t scratchpad_array[XHCI_MAX_SCRATCHPAD] = {0};
 aligned4k volatile uint8_t  scratchpad_pages[XHCI_MAX_SCRATCHPAD][4096] = {0};
 
@@ -937,10 +939,89 @@ int xhci_set_configuration(uint32_t slot_id, uint8_t config_val) {
 // MSI CONFIGURATION (call after the device is attached, before STI)
 // ============================================================================
 
-// Walk the PCI capability list, configure MSI to fire on `vector`, then
-// enable the xHCI interrupter and USBCMD.INTE.
+// Configure the MSI-X capability (cap id 0x11) at `cap_ptr` to fire `vector`.
+// Returns 1 on success. MSI-X keeps its address/data in a table living in a
+// BAR (typically what QEMU's qemu-xhci exposes).
+static int xhci_setup_msix(volatile uint32_t *pci, uint8_t cap_ptr,
+                           uint8_t vector) {
+  uint32_t cap_dw = pci[cap_ptr / 4];
+
+  // Message Control: bits [31:16] of cap_dw
+  //   [26:16] = Table Size (N-1)   → actual entries = (field)+1
+  //   [30]    = Function Mask
+  //   [31]    = MSI-X Enable
+  uint16_t table_size = ((cap_dw >> 16) & 0x7FF) + 1;
+
+  // DWORD at cap+4: Table BIR [2:0] + Table Offset [31:3]
+  uint32_t table_reg = pci[(cap_ptr + 4) / 4];
+  uint8_t  bir       = table_reg & 0x7;
+  uint32_t table_off = table_reg & ~0x7U;
+
+  XDBG("MSI-X cap at 0x%x: %d entries, BIR=%d, table_off=0x%x\n",
+       cap_ptr, table_size, bir, table_off);
+
+  // Resolve the BAR that holds the MSI-X table.
+  // BAR0+BAR1 form a 64-bit BAR; xhci_dev.base_mmio already combines them.
+  // For bir>0, read the raw BAR from PCI config space.
+  uint64_t bar_base;
+  if (bir == 0) {
+    bar_base = xhci_dev.base_mmio;
+  } else {
+    uint32_t lo = pci[(0x10 + bir * 4) / 4] & 0xFFFFFFF0U;
+    uint32_t hi = pci[(0x10 + bir * 4 + 4) / 4];
+    bar_base = (uint64_t)lo | ((uint64_t)hi << 32);
+  }
+
+  // MSI-X table entry 0 (16 bytes: addr_lo, addr_hi, data, vector_ctrl)
+  volatile uint32_t *entry = (volatile uint32_t *)(bar_base + table_off);
+  entry[0] = 0xFEE00000U;      // message address: LAPIC, BSP, physical
+  entry[1] = 0;                 // message address high
+  entry[2] = (uint32_t)vector;  // message data: IDT vector
+  entry[3] = 0;                 // vector control: bit 0=0 → unmasked
+
+  // Enable MSI-X (bit 31) and clear Function Mask (bit 30)
+  pci[cap_ptr / 4] = (cap_dw | (1U << 31)) & ~(1U << 30);
+
+  XDBG("MSI-X configured: addr=0xFEE00000 data=0x%x\n", vector);
+  return 1;
+}
+
+// Configure the MSI capability (cap id 0x05) at `cap_ptr` to fire `vector`.
+// Returns 1 on success. Real Intel xHCI controllers expose MSI, not MSI-X.
+// Unlike MSI-X, MSI stores the address/data inline in PCI config space, and
+// the data field's offset depends on whether the cap is 64-bit address capable.
+static int xhci_setup_msi(volatile uint32_t *pci, uint8_t cap_ptr,
+                          uint8_t vector) {
+  uint32_t cap_dw  = pci[cap_ptr / 4];
+  uint16_t msg_ctl = (cap_dw >> 16) & 0xFFFF;
+  int is_64bit     = (msg_ctl >> 7) & 1;   // bit 7: 64-bit address capable
+
+  XDBG("MSI cap at 0x%x: %s-bit\n", cap_ptr, is_64bit ? "64" : "32");
+
+  // cap+0x04: Message Address Low (must be 4-byte aligned, low 2 bits 0)
+  pci[(cap_ptr + 0x04) / 4] = 0xFEE00000U;  // LAPIC, BSP, physical delivery
+
+  if (is_64bit) {
+    pci[(cap_ptr + 0x08) / 4] = 0;            // Message Address High
+    pci[(cap_ptr + 0x0C) / 4] = vector;       // Message Data
+  } else {
+    pci[(cap_ptr + 0x08) / 4] = vector;       // Message Data
+  }
+
+  // Message Control: set Enable (bit 0), force Multiple Message Enable
+  // (bits [6:4]) to 0 → exactly one vector allocated.
+  msg_ctl = (msg_ctl & ~(0x7U << 4)) | 1U;
+  pci[cap_ptr / 4] = (cap_dw & 0x0000FFFFU) | ((uint32_t)msg_ctl << 16);
+
+  XDBG("MSI configured: addr=0xFEE00000 data=0x%x\n", vector);
+  return 1;
+}
+
+// Walk the PCI capability list, configure interrupt delivery to fire on
+// `vector`, then enable the xHCI interrupter and USBCMD.INTE. Prefers MSI-X
+// (cap 0x11) when present and falls back to plain MSI (cap 0x05).
 void xhci_enable_msi(uint8_t vector) {
-  XDBG("=== Enabling xHCI MSI-X (vector 0x%x) ===\n", vector);
+  XDBG("=== Enabling xHCI interrupts (vector 0x%x) ===\n", vector);
 
   volatile uint32_t *pci = xhci_dev.pci_regs;
   if (!pci) { printf("ERROR: xHCI PCI regs not set\n"); return; }
@@ -951,67 +1032,34 @@ void xhci_enable_msi(uint8_t vector) {
   // Capabilities Pointer is at PCI config offset 0x34 (DWORD index 13), low byte
   uint8_t cap_ptr = (uint8_t)(pci[0x34 / 4] & 0xFF);
 
+  // First pass: find MSI-X and/or MSI capability offsets.
+  uint8_t msix_ptr = 0, msi_ptr = 0;
   while (cap_ptr) {
     if (cap_ptr < 0x40) break;
-
-    uint32_t cap_dw   = pci[cap_ptr / 4];
-    uint8_t  cap_id   = cap_dw & 0xFF;
-    uint8_t  cap_next = (cap_dw >> 8) & 0xFF;
-
-    if (cap_id == 0x11) {  // MSI-X capability
-      // Message Control: bits [31:16] of cap_dw
-      //   [26:16] = Table Size (N-1)   → actual entries = (field)+1
-      //   [30]    = Function Mask
-      //   [31]    = MSI-X Enable
-      uint16_t table_size = ((cap_dw >> 16) & 0x7FF) + 1;
-
-      // DWORD at cap+4: Table BIR [2:0] + Table Offset [31:3]
-      uint32_t table_reg = pci[(cap_ptr + 4) / 4];
-      uint8_t  bir       = table_reg & 0x7;
-      uint32_t table_off = table_reg & ~0x7U;
-
-      XDBG("MSI-X cap at 0x%x: %d entries, BIR=%d, table_off=0x%x\n",
-           cap_ptr, table_size, bir, table_off);
-
-      // Resolve the BAR that holds the MSI-X table.
-      // BAR0+BAR1 form a 64-bit BAR; xhci_dev.base_mmio already combines them.
-      // For bir>0, read the raw BAR from PCI config space.
-      uint64_t bar_base;
-      if (bir == 0) {
-        bar_base = xhci_dev.base_mmio;
-      } else {
-        uint32_t lo = pci[(0x10 + bir * 4) / 4] & 0xFFFFFFF0U;
-        uint32_t hi = pci[(0x10 + bir * 4 + 4) / 4];
-        bar_base = (uint64_t)lo | ((uint64_t)hi << 32);
-      }
-
-      // MSI-X table entry 0 (16 bytes: addr_lo, addr_hi, data, vector_ctrl)
-      volatile uint32_t *entry = (volatile uint32_t *)(bar_base + table_off);
-      entry[0] = 0xFEE00000U;      // message address: LAPIC, BSP, physical
-      entry[1] = 0;                 // message address high
-      entry[2] = (uint32_t)vector;  // message data: IDT vector
-      entry[3] = 0;                 // vector control: bit 0=0 → unmasked
-
-      // Enable MSI-X (bit 31) and clear Function Mask (bit 30)
-      pci[cap_ptr / 4] = (cap_dw | (1U << 31)) & ~(1U << 30);
-
-      XDBG("MSI-X configured: addr=0xFEE00000 data=0x%x\n", vector);
-
-      // Enable xHCI Interrupter 0: IE=1, clear any pending IP
-      xhci_dev.int_0_regs->Iman = 0x3;
-
-      // Enable host controller interrupt generation: USBCMD.INTE (bit 2)
-      xhci_dev.op_regs->UsbCmd |= (1U << 2);
-
-      XDBG("xHCI interrupter enabled\n");
-      XDBG("=== MSI-X ready - call STI to unmask ===\n");
-      return;
-    }
-
-    cap_ptr = cap_next;
+    uint32_t cap_dw  = pci[cap_ptr / 4];
+    uint8_t  cap_id  = cap_dw & 0xFF;
+    if (cap_id == 0x11) msix_ptr = cap_ptr;
+    else if (cap_id == 0x05) msi_ptr = cap_ptr;
+    cap_ptr = (cap_dw >> 8) & 0xFF;
   }
 
-  printf("ERROR: MSI-X capability not found in PCI config space\n");
+  int ok = 0;
+  if (msix_ptr)      ok = xhci_setup_msix(pci, msix_ptr, vector);
+  else if (msi_ptr)  ok = xhci_setup_msi(pci, msi_ptr, vector);
+  else {
+    printf("ERROR: neither MSI-X nor MSI capability found in PCI config space\n");
+    return;
+  }
+  if (!ok) return;
+
+  // Enable xHCI Interrupter 0: IE=1, clear any pending IP
+  xhci_dev.int_0_regs->Iman = 0x3;
+
+  // Enable host controller interrupt generation: USBCMD.INTE (bit 2)
+  xhci_dev.op_regs->UsbCmd |= (1U << 2);
+
+  XDBG("xHCI interrupter enabled\n");
+  XDBG("=== interrupts ready - call STI to unmask ===\n");
 }
 
 
