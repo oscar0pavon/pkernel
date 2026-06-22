@@ -36,6 +36,10 @@
 #define USB_REQ_GET_DESCRIPTOR 0x06
 #define USB_REQ_SET_CONFIG     0x09
 
+// HID class requests (HID spec 7.2)
+#define USB_HID_REQ_SET_PROTOCOL 0x0B
+#define USB_HID_PROTOCOL_BOOT    0x00
+
 // bEndpointAddress direction bit
 #define USB_EP_DIR_IN          0x80
 

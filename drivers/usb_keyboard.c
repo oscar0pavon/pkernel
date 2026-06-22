@@ -51,7 +51,10 @@ static void xhci_process_key_report(void) {
 // Called once from usb_kbd_attach() to prime the pipeline, then again
 // at the end of every usb_kbd_isr() to re-arm for the next report.
 static void xhci_queue_kbd_trb(void) {
-  uint16_t report_sz = ep1_in_mps ? ep1_in_mps : 8;
+  // Boot Protocol reports are 8 bytes ([modifier][reserved][6 keycodes]); that
+  // is also the size of kbd_report, so never request more than that even if the
+  // endpoint's max packet size is larger (this keyboard reports MPS 32).
+  uint16_t report_sz = sizeof(kbd_report);
 
   volatile struct XhciTRB *trb = &ep1in_ring[ep1in_enqueue];
   trb->Parameter = (uint64_t)kbd_report;
@@ -127,10 +130,13 @@ static int usb_kbd_get_report_descriptor(uint32_t slot_id) {
   uint16_t req_len = (hid_report_len > 256) ? 256 : hid_report_len;
   for (uint32_t i = 0; i < 256; i++) descriptor_buffer[i] = 0;
 
-  // bmRequestType=0x81: D-to-H, Standard, Interface recipient
+  // bmRequestType=0x81: D-to-H, Standard, Interface recipient.
+  // wIndex (bits 32-47) must be the HID interface number, not a hardcoded 0,
+  // or a composite device stalls the request.
   uint64_t setup = (uint64_t)0x81
                  | ((uint64_t)USB_REQ_GET_DESCRIPTOR << 8)
                  | ((uint64_t)USB_DESC_HID_REPORT << 24)
+                 | ((uint64_t)iface_number << 32)
                  | ((uint64_t)req_len << 48);
 
   if (!xhci_control_in(slot_id, setup, descriptor_buffer, req_len)) {
@@ -159,16 +165,40 @@ static int usb_kbd_get_report_descriptor(uint32_t slot_id) {
 // Called from usb_attach_device() after xHCI enumeration. Fetches the HID
 // report descriptor, then queues the first interrupt-IN TRB. MSI fires when
 // the device sends a report; usb_kbd_isr() takes over from there.
+// SET_PROTOCOL(Boot): make the HID device emit the standard 8-byte boot report
+// regardless of its native (report-protocol) format. Devices enumerate in
+// Report Protocol by default, and this keyboard reports protocol 0 with a
+// 32-byte endpoint, so force Boot Protocol for a parseable report.
+static void usb_kbd_set_boot_protocol(uint32_t slot_id) {
+  // bmRequestType=0x21 (H-to-D, Class, Interface), bRequest=SET_PROTOCOL,
+  // wValue=0 (Boot), wIndex=interface, wLength=0.
+  uint64_t setup = (uint64_t)0x21
+                 | ((uint64_t)USB_HID_REQ_SET_PROTOCOL << 8)
+                 | ((uint64_t)USB_HID_PROTOCOL_BOOT << 16)
+                 | ((uint64_t)iface_number << 32);
+
+  if (!ep0_control_nodata(slot_id, setup))
+    printf("WARNING: SET_PROTOCOL(boot) failed; reports may not be 8-byte\n");
+  else
+    XDBG("SET_PROTOCOL(boot) accepted\n");
+}
+
 void usb_kbd_attach(uint32_t slot_id) {
   XDBG("=== Arming keyboard interrupt (slot %d, EP%d IN, MPS=%d) ===\n",
        slot_id, ep1_in_number, ep1_in_mps);
 
-  if (!usb_kbd_get_report_descriptor(slot_id)) return;
+  // Switch to Boot Protocol so we receive standard 8-byte reports.
+  usb_kbd_set_boot_protocol(slot_id);
+
+  // The HID Report descriptor isn't needed to read boot reports; fetch it for
+  // debug if the device offers it, but don't fail the attach when it stalls.
+  usb_kbd_get_report_descriptor(slot_id);
 
   kbd_slot_id   = slot_id;
   kbd_db_target = (uint32_t)ep1_in_number * 2 + 1;
 
   xhci_queue_kbd_trb();
 
+  printf("USB: keyboard ready on slot %d\n", slot_id);
   XDBG("=== Keyboard armed — waiting for MSI ===\n");
 }

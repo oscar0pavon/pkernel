@@ -244,6 +244,8 @@ void xhci_enable_msi(uint8_t vector);
 // Returns 1 on success, 0 on failure.
 uint32_t xhci_control_in(uint32_t slot_id, uint64_t setup,
                          volatile uint8_t *buf, uint16_t length);
+// Control transfer with no data stage (e.g. SET_PROTOCOL, SET_CONFIGURATION).
+uint32_t ep0_control_nodata(uint32_t slot_id, uint64_t setup);
 
 extern volatile uint8_t descriptor_buffer[256];
 extern volatile struct XhciTRB ep1in_ring[256];
@@ -256,6 +258,7 @@ extern uint16_t ep1_in_mps;
 extern uint8_t  ep1_in_interval;
 extern uint8_t  ep1_in_number;
 extern uint16_t hid_report_len;
+extern uint8_t  iface_number;
 
 extern uint32_t command_ring_enqueue;
 extern uint32_t command_ring_cycle;

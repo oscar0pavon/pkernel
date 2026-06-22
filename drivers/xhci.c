@@ -66,6 +66,9 @@ static uint32_t dev_port  = 0;
 static uint8_t iface_class    = 0;
 static uint8_t iface_subclass = 0;
 static uint8_t iface_protocol = 0;
+// bInterfaceNumber of the HID interface; used as wIndex for class requests
+// (SET_PROTOCOL, GET HID Report descriptor) that target the interface.
+uint8_t iface_number = 0;
 
 // Endpoint info populated by Step 11, consumed by Steps 12–14
 uint8_t  ep1_in_addr     = 0;
@@ -864,6 +867,7 @@ int xhci_get_config_descriptor(uint32_t slot_id) {
     if (bLength < 2 || offset + bLength > total_length) break;
 
     if (bType == USB_DESC_INTERFACE) {
+      iface_number   = descriptor_buffer[offset + 2];
       iface_class    = descriptor_buffer[offset + 5];
       iface_subclass = descriptor_buffer[offset + 6];
       iface_protocol = descriptor_buffer[offset + 7];
@@ -913,7 +917,7 @@ int xhci_get_config_descriptor(uint32_t slot_id) {
 // EP0 HELPER: Control transfer with no data stage (e.g. SET_CONFIGURATION).
 // Setup TRB has TRT=0; Status Stage is IN (DIR=1) per xHCI spec 4.11.2.2.
 // ============================================================================
-static uint32_t ep0_control_nodata(uint32_t slot_id, uint64_t setup) {
+uint32_t ep0_control_nodata(uint32_t slot_id, uint64_t setup) {
   // Setup Stage TRB: IDT=1, TRT=0 (no data stage)
   volatile struct XhciTRB *s = &ep0_ring[ep0_enqueue++];
   s->Parameter = setup;
