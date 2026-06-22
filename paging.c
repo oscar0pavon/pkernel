@@ -15,8 +15,7 @@ aligned4k static uint64_t kernel_pdpt[512];
 aligned4k static uint64_t kernel_pd0[512]; // Maps 0GB - 1GB
 aligned4k static uint64_t kernel_pd1[512]; // Maps 1GB - 2GB
 aligned4k static uint64_t kernel_pd2[512]; // Maps 2GB - 3GB
-aligned4k static uint64_t kernel_pd3[512]; // Maps 3GB - 4GB (Includes your
-aligned4k static uint64_t kernel_pd_xhci[512];// high xHCI MMIO / ACPI zones)
+aligned4k static uint64_t kernel_pd3[512]; // Maps 3GB - 4GB (PCI config / high MMIO)
 
 
 #define PAGE_2MB 0x200000ULL
@@ -55,6 +54,19 @@ static void identity_map_region(uint64_t phys, uint64_t size) {
   }
 }
 
+// Identity-map an MMIO region (e.g. a PCI BAR) discovered at runtime, after
+// init_paging has already loaded CR3. Device BARs on real hardware land at
+// physical addresses far outside the low 4 GB we map up front (the xHCI BAR is
+// commonly hundreds of GB up), so the driver must map its own window before
+// touching it. Reloads CR3 to drop any cached not-present paging entries.
+void paging_map_mmio(uint64_t phys, uint64_t size) {
+  identity_map_region(phys, size);
+
+  uint64_t cr3;
+  asm volatile("mov %%cr3, %0" : "=r"(cr3));
+  asm volatile("mov %0, %%cr3" : : "r"(cr3) : "memory");
+}
+
 void init_paging(void) {
   // 1. Zero out the tables completely to wipe any random RAM junk bytes
   for (int i = 0; i < 512; i++) {
@@ -64,7 +76,6 @@ void init_paging(void) {
     kernel_pd1[i] = 0;
     kernel_pd2[i] = 0;
     kernel_pd3[i] = 0;
-    kernel_pd_xhci[i] = 0;
   }
 
   // 2. Link PML4 Entry 0 to our Page Descriptor Pointer Table (PDPT)
@@ -76,8 +87,6 @@ void init_paging(void) {
   kernel_pdpt[1] = (uint64_t)kernel_pd1 | PAGE_PRESENT | PAGE_READWRITE;
   kernel_pdpt[2] = (uint64_t)kernel_pd2 | PAGE_PRESENT | PAGE_READWRITE;
   kernel_pdpt[3] = (uint64_t)kernel_pd3 | PAGE_PRESENT | PAGE_READWRITE;
-
-  kernel_pdpt[32] = (uint64_t)&kernel_pd_xhci | PAGE_PRESENT | PAGE_READWRITE;
 
   // 4. Fill the directories to identity-map the lower 4GB using fast 2MB huge
   // pages
@@ -101,9 +110,6 @@ void init_paging(void) {
     // bars!)
     kernel_pd3[i] =
         (0xC0000000ULL + chunk_2mb) | PAGE_PRESENT | PAGE_READWRITE | PAGE_HUGE;
-
-    kernel_pd_xhci[i] = (0x800000000ULL + chunk_2mb) 
-      | PAGE_PRESENT | PAGE_READWRITE | PAGE_HUGE;
   }
 
   // 4b. The GOP framebuffer base is a raw physical address chosen by the

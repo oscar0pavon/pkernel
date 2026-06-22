@@ -2,6 +2,7 @@
 #include "pci.h"
 #include "../console.h"
 #include "../types.h"
+#include "../paging.h"
 #include "xhci.h"
 
 uint64_t pcie_mmio_base_address = 0;
@@ -69,6 +70,11 @@ void setup_pci() {
       if ((bar0 & 0x06) == 0x04) {
         xhci_dev.base_mmio |= ((uint64_t)bar1 << 32);
       }
+
+      // The BAR can sit far above the low 4 GB the kernel maps at boot, so map
+      // its MMIO window before the driver dereferences it. 64 KB covers the
+      // xHCI capability/operational/runtime/doorbell register file.
+      paging_map_mmio(xhci_dev.base_mmio, 0x10000);
 
       init_xhci_driver();
     }
