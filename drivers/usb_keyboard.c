@@ -5,9 +5,16 @@
 #include "../input.h"
 #include "../sched.h"
 
-// Saved by usb_kbd_attach(), consumed by usb_kbd_isr()
-static uint32_t kbd_slot_id  = 0;
-static uint32_t kbd_db_target = 0;
+// Per-keyboard state. Indexed 0..num_kbds-1; slot_id is the xHCI slot number.
+#define MAX_KBD XHCI_MAX_SLOTS
+struct KbdState {
+  uint32_t slot_id;
+  uint32_t db_target;
+  volatile uint8_t report[64];
+  uint8_t prev_kc[6];
+};
+static struct KbdState kbd[MAX_KBD];
+static int num_kbds = 0;
 
 // USB HID Usage Page 0x07 keycode → ASCII (indices 0x00–0x38)
 static const char kbd_ascii[2][57] = {
@@ -23,22 +30,17 @@ static const char kbd_ascii[2][57] = {
      '}', '|', 0,   ':', '"',  '~', '<',  '>',  '?'},
 };
 
-// Large enough for a non-boot keyboard's native report (endpoint MPS can be 32+
-// bytes), not just the 8-byte boot report.
-static volatile uint8_t kbd_report[64] = {0};
-static uint8_t kbd_prev_kc[6] = {0};
-
-// Decode one 8-byte HID Boot Protocol report and enqueue changed keys.
-static void xhci_process_key_report(void) {
-  uint8_t modifier = kbd_report[0];
+// Decode one 8-byte HID Boot Protocol report for device k and enqueue new keys.
+static void xhci_process_key_report(int k) {
+  uint8_t modifier = kbd[k].report[0];
   uint8_t shifted  = (modifier & 0x22) ? 1 : 0;  // bit1=LShift, bit5=RShift
 
   for (int i = 2; i < 8; i++) {
-    uint8_t kc = kbd_report[i];
+    uint8_t kc = kbd[k].report[i];
     if (kc == 0) continue;
 
     int held = 0;
-    for (int j = 0; j < 6; j++) if (kbd_prev_kc[j] == kc) { held = 1; break; }
+    for (int j = 0; j < 6; j++) if (kbd[k].prev_kc[j] == kc) { held = 1; break; }
     if (held) continue;
 
     if (kc < 57) {
@@ -48,32 +50,29 @@ static void xhci_process_key_report(void) {
     }
   }
 
-  for (int i = 0; i < 6; i++) kbd_prev_kc[i] = kbd_report[i + 2];
+  for (int i = 0; i < 6; i++) kbd[k].prev_kc[i] = kbd[k].report[i + 2];
 }
-// Queue one Normal TRB on EP1 IN and ring the doorbell.
-// Called once from usb_kbd_attach() to prime the pipeline, then again
-// at the end of every usb_kbd_isr() to re-arm for the next report.
-static void xhci_queue_kbd_trb(void) {
-  // Request a full endpoint packet so a non-boot keyboard's native report is
-  // captured intact (requesting fewer bytes than it sends would babble), capped
-  // to the report buffer.
-  uint16_t report_sz = ep1_in_mps ? ep1_in_mps : 8;
-  if (report_sz > sizeof(kbd_report)) report_sz = sizeof(kbd_report);
 
-  volatile struct XhciTRB *trb = &ep1in_ring[ep1in_enqueue];
-  trb->Parameter = (uint64_t)kbd_report;
+// Queue one Normal TRB on EP1 IN for device k and ring its doorbell.
+static void xhci_queue_kbd_trb(int k) {
+  uint32_t sid = kbd[k].slot_id;
+  uint16_t report_sz = ep1_in_mps ? ep1_in_mps : 8;
+  if (report_sz > sizeof(kbd[k].report)) report_sz = sizeof(kbd[k].report);
+
+  volatile struct XhciTRB *trb = &ep1in_ring[sid][ep1in_enqueue[sid]];
+  trb->Parameter = (uint64_t)kbd[k].report;
   trb->Status    = report_sz;
   // IOC=1 (interrupt on completion), ISP=1 (interrupt on short packet)
-  trb->Control   = (TRB_TYPE_NORMAL << 10) | (1U << 5) | (1U << 2) | ep1in_cycle;
+  trb->Control   = (TRB_TYPE_NORMAL << 10) | (1U << 5) | (1U << 2) | ep1in_cycle[sid];
 
-  ep1in_enqueue++;
-  if (ep1in_enqueue >= 255) {
-    ep1in_ring[255].Control = (TRB_TYPE_LINK << 10) | (1U << 1) | ep1in_cycle;
-    ep1in_cycle ^= 1;
-    ep1in_enqueue = 0;
+  ep1in_enqueue[sid]++;
+  if (ep1in_enqueue[sid] >= 255) {
+    ep1in_ring[sid][255].Control = (TRB_TYPE_LINK << 10) | (1U << 1) | ep1in_cycle[sid];
+    ep1in_cycle[sid] ^= 1;
+    ep1in_enqueue[sid] = 0;
   }
 
-  xhci_dev.doorbell_regs[kbd_slot_id] = kbd_db_target;
+  xhci_dev.doorbell_regs[sid] = kbd[k].db_target;
 }
 
 // Drain the event ring, process any keyboard reports, and re-arm the endpoint.
@@ -88,7 +87,9 @@ static void usb_kbd_service(void) {
   // Clear USBSTS.EINT (bit 3; write-1-to-clear)
   xhci_dev.op_regs->UsbSts = (1U << 3);
 
-  int got_transfer = 0;
+  // Per-device re-arm flags; re-arm after draining so we replace exactly one
+  // consumed TRB per device per drain pass.
+  int got_transfer[MAX_KBD] = {0};
 
   // Drain all pending events from the event ring
   while (1) {
@@ -97,6 +98,7 @@ static void usb_kbd_service(void) {
 
     uint32_t trb_type        = (ev->Control >> 10) & 0x3F;
     uint32_t completion_code = (ev->Status  >> 24) & 0xFF;
+    uint32_t ev_slot         = (ev->Control >> 24) & 0xFF;
 
     event_ring_dequeue++;
     if (event_ring_dequeue >= 256) {
@@ -108,15 +110,19 @@ static void usb_kbd_service(void) {
 
     if (trb_type == TRB_TYPE_TRANSFER_EVENT &&
         (completion_code == 1 || completion_code == 13)) {
-      xhci_process_key_report();
-      got_transfer = 1;
+      for (int k = 0; k < num_kbds; k++) {
+        if (kbd[k].slot_id == ev_slot) {
+          xhci_process_key_report(k);
+          got_transfer[k] = 1;
+          break;
+        }
+      }
     }
   }
 
-  // Re-arm only after a real HID report arrived; spurious/port-status
-  // events do not consume a TRB so there is nothing to replace.
-  if (got_transfer)
-    xhci_queue_kbd_trb();
+  for (int k = 0; k < num_kbds; k++)
+    if (got_transfer[k])
+      xhci_queue_kbd_trb(k);
 }
 
 // C-level ISR called from irq_xhci_handler (idt_asm.s).
@@ -269,17 +275,22 @@ int usb_kbd_attach(uint32_t slot_id) {
     return 0;
   }
 
-  kbd_slot_id   = slot_id;
-  kbd_db_target = (uint32_t)ep1_in_number * 2 + 1;
+  if (num_kbds >= MAX_KBD) {
+    printf("USB: too many keyboards; skipping slot %d\n", slot_id);
+    return 0;
+  }
 
-  xhci_queue_kbd_trb();
+  int k = num_kbds++;
+  kbd[k].slot_id   = slot_id;
+  kbd[k].db_target = (uint32_t)ep1_in_number * 2 + 1;
 
-  // Drive the keyboard by polling the event ring as well as via MSI. MSI is
-  // unreliable on real Intel xHCI, so this task is what actually delivers
-  // keystrokes on hardware; it starts running once the scheduler is up.
-  task_create("usbkbd", usb_kbd_poll_task);
+  xhci_queue_kbd_trb(k);
 
-  printf("USB: keyboard ready on slot %d\n", slot_id);
+  // One shared poll task services all keyboards; only create it for the first.
+  if (k == 0)
+    task_create("usbkbd", usb_kbd_poll_task);
+
+  printf("USB: keyboard ready on slot %d (kbd %d)\n", slot_id, k);
   XDBG("=== Keyboard armed — polling + MSI ===\n");
   return 1;
 }
