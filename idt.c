@@ -35,7 +35,7 @@ void set_idt_gate(int vector, uint64_t handler_address) {
 // The Core Debugger Print Screen
 void c_exception_handler(uint64_t vector, uint64_t error_code, uint64_t rip) {
   printf("\n================================================\n");
-  printf("        !!! BARE-METAL KERNEL PANIC !!!         \n");
+  printf("           BARE-METAL KERNEL PANIC          \n");
   printf("================================================\n");
   printf("Exception Vector Detected: %d\n", (int)vector);
   printf("Hardware Error Code:      0x%lx\n", error_code);

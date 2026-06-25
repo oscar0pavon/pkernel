@@ -53,25 +53,25 @@ void main(BootInfo* boot_info){
 
   init_paging();
 
-  //init_lapic();
-  //lapic_timer_init(100);     // calibrate + start periodic timer at 100 Hz
+  init_lapic();
+  lapic_timer_init(100);     // calibrate + start periodic timer at 100 Hz
 
-  //sched_init();
+  sched_init();
   
-  //set_idt_gate(0x20, (uint64_t)irq_sched_handler);
-  //set_idt_gate(0x21, (uint64_t)irq_xhci_handler);
+  set_idt_gate(0x20, (uint64_t)irq_sched_handler);
+  set_idt_gate(0x21, (uint64_t)irq_xhci_handler);
 
   
-  //setup_pci();
-  //xhci_enable_msi(0x21);     // configure PCI MSI + enable xHCI interrupter
+  setup_pci();
+  xhci_enable_msi(0x21);     // configure PCI MSI + enable xHCI interrupter
 
-  //task_create("idle", idle_task);
+  task_create("idle", idle_task);
 
-  //task_create("counter", print_every_seconds);
+  task_create("counter", print_every_seconds);
 
-  //task_create("shell", shell_run);
+  task_create("shell", shell_run);
 
-  //asm volatile("sti");   // unmask interrupts — keyboard IRQs can now fire
+  asm volatile("sti");   // unmask interrupts — keyboard IRQs can now fire
 
   
   printf("--You are in owner space now--\n");
