@@ -858,8 +858,19 @@ int xhci_get_config_descriptor(uint32_t slot_id) {
   XDBG("  bmAttributes:        0x%x\n", descriptor_buffer[7]);
   XDBG("  bMaxPower:           %dmA\n", descriptor_buffer[8] * 2);
 
-  // Walk all sub-descriptors
+  // Walk all sub-descriptors.
+  //
+  // A composite keyboard exposes several HID interfaces (boot keyboard,
+  // consumer/media keys, vendor/NKRO), each with its own interrupt IN endpoint.
+  // We must BIND THE BOOT KEYBOARD INTERFACE (HID class, protocol 1) — that is
+  // the one carrying ordinary keystrokes. Prefer it when present; fall back to
+  // the first HID interface otherwise. Previously the walk kept the *last*
+  // interface and *last* IN endpoint it saw, which on a composite device left
+  // us polling a non-typing endpoint (protocol 0) that never reports.
   uint32_t offset = descriptor_buffer[0];  // skip Config Descriptor itself
+  int locked_kbd = 0;   // bound a true keyboard interface (protocol 1) — final
+  int have_iface = 0;   // bound some HID interface (fallback)
+  int capturing  = 0;   // endpoints under the current interface are ours
   while (offset + 1 < total_length) {
     uint8_t bLength = descriptor_buffer[offset];
     uint8_t bType   = descriptor_buffer[offset + 1];
@@ -867,43 +878,47 @@ int xhci_get_config_descriptor(uint32_t slot_id) {
     if (bLength < 2 || offset + bLength > total_length) break;
 
     if (bType == USB_DESC_INTERFACE) {
-      iface_number   = descriptor_buffer[offset + 2];
-      iface_class    = descriptor_buffer[offset + 5];
-      iface_subclass = descriptor_buffer[offset + 6];
-      iface_protocol = descriptor_buffer[offset + 7];
-      XDBG("Interface Descriptor:\n");
-      XDBG("  bInterfaceNumber:   %d\n", descriptor_buffer[offset + 2]);
-      XDBG("  bNumEndpoints:      %d\n", descriptor_buffer[offset + 4]);
-      XDBG("  bInterfaceClass:    0x%x\n", iface_class);
-      XDBG("  bInterfaceSubClass: 0x%x\n", iface_subclass);
-      XDBG("  bInterfaceProtocol: 0x%x\n", iface_protocol);
+      uint8_t num   = descriptor_buffer[offset + 2];
+      uint8_t cls   = descriptor_buffer[offset + 5];
+      uint8_t sub   = descriptor_buffer[offset + 6];
+      uint8_t proto = descriptor_buffer[offset + 7];
+
+      // Diagnostic: list every interface so the composite layout is visible.
+      printf("USB: iface %d class 0x%x sub 0x%x proto 0x%x\n",
+             num, cls, sub, proto);
+
+      int is_hid = (cls == USB_CLASS_HID);
+      int is_kbd = (is_hid && proto == USB_HID_PROTOCOL_KBD);
+      if ((is_kbd && !locked_kbd) || (is_hid && !have_iface)) {
+        iface_number   = num;
+        iface_class    = cls;
+        iface_subclass = sub;
+        iface_protocol = proto;
+        have_iface     = 1;
+        capturing      = 1;
+        ep1_in_number  = 0;   // recapture the selected interface's IN endpoint
+        if (is_kbd) locked_kbd = 1;
+      } else {
+        capturing = 0;        // ignore endpoints of interfaces we don't want
+      }
     } else if (bType == USB_DESC_HID) {  // HID Descriptor
-      uint16_t bcdHID    = (uint16_t)descriptor_buffer[offset + 2]
-                         | ((uint16_t)descriptor_buffer[offset + 3] << 8);
-      uint16_t rpt_len   = (uint16_t)descriptor_buffer[offset + 7]
-                         | ((uint16_t)descriptor_buffer[offset + 8] << 8);
-      hid_report_len = rpt_len;
-      XDBG("HID Descriptor:\n");
-      XDBG("  bcdHID:             0x%x\n", bcdHID);
-      XDBG("  bCountryCode:       %d\n",   descriptor_buffer[offset + 4]);
-      XDBG("  bNumDescriptors:    %d\n",   descriptor_buffer[offset + 5]);
-      XDBG("  wDescriptorLength:  %d\n",   rpt_len);
+      if (capturing) {
+        hid_report_len = (uint16_t)descriptor_buffer[offset + 7]
+                       | ((uint16_t)descriptor_buffer[offset + 8] << 8);
+      }
     } else if (bType == USB_DESC_ENDPOINT) {  // Endpoint Descriptor
-      uint8_t  addr = descriptor_buffer[offset + 2];
-      uint16_t mps  = (uint16_t)descriptor_buffer[offset + 4]
-                    | ((uint16_t)descriptor_buffer[offset + 5] << 8);
-      if (addr & USB_EP_DIR_IN) {
+      uint8_t  addr  = descriptor_buffer[offset + 2];
+      uint8_t  attrs = descriptor_buffer[offset + 3];
+      uint16_t mps   = (uint16_t)descriptor_buffer[offset + 4]
+                     | ((uint16_t)descriptor_buffer[offset + 5] << 8);
+      // First interrupt IN endpoint (bmAttributes[1:0]=11b) of the bound iface.
+      if (capturing && (addr & USB_EP_DIR_IN) && (attrs & 0x3) == 3 &&
+          ep1_in_number == 0) {
         ep1_in_addr     = addr;
         ep1_in_mps      = mps;
         ep1_in_interval = descriptor_buffer[offset + 6];
         ep1_in_number   = addr & 0x0F;
       }
-      XDBG("Endpoint Descriptor:\n");
-      XDBG("  bEndpointAddress:   0x%x (%s EP%d)\n",
-           addr, (addr & USB_EP_DIR_IN) ? "IN" : "OUT", addr & 0x0F);
-      XDBG("  bmAttributes:       0x%x\n", descriptor_buffer[offset + 3]);
-      XDBG("  wMaxPacketSize:     %d\n",   mps);
-      XDBG("  bInterval:          %d\n",   descriptor_buffer[offset + 6]);
     }
 
     offset += bLength;
