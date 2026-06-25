@@ -90,7 +90,7 @@ void setup_pci() {
       // init_xhci_driver() resets the controller, starts it, and scans its
       // root-hub ports. If something enumerated, this is the controller to
       // keep; leave xhci_dev pointing at it and stop probing.
-      if (xhci_dev.num_attached) {
+      if (xhci_dev.device_attached) {
         printf("xHCI: device found on controller %02x:%02x.%x\n",
                d->bus, d->device, d->function);
         break;

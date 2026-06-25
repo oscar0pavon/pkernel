@@ -23,19 +23,16 @@ aligned4k volatile XhciEventTRB event_ring[256] = {0};
 // Using aligned4k caused erst to share the same 4K address as event_ring.
 aligned64 volatile EventRingSegmentEntry erst = {0};
 
-// Address Device buffers — input_ctx and ep0_ring are reused sequentially
-// (one enumeration at a time), so a single copy is fine. device_ctx must be
-// per-slot because the controller writes back to it continuously after Address
-// Device; all slots share the single DCBAAP so each slot needs its own page.
+// Address Device buffers (one slot supported for now)
 aligned4k volatile XhciInputContext  input_ctx  = {0};
-aligned4k volatile XhciDeviceContext device_ctx[XHCI_MAX_SLOTS+1] = {0};
+aligned4k volatile XhciDeviceContext device_ctx = {0};
 aligned4k volatile XhciTRB           ep0_ring[256] = {0};
 
 // DMA receive buffer for USB descriptors (256 bytes covers any standard descriptor)
 aligned4k volatile uint8_t descriptor_buffer[256] = {0};
 
-// EP1 IN transfer rings — one per slot (indexed by slot_id, 1-based).
-aligned4k volatile XhciTRB ep1in_ring[XHCI_MAX_SLOTS+1][256] = {0};
+// EP1 IN transfer ring (used from Step 12 onward)
+aligned4k volatile XhciTRB ep1in_ring[256] = {0};
 
 // Scratchpad buffers (xHCI spec 4.20): controller-private memory pages.
 // DCBAAP[0] must point to this array before the Run bit is set.
@@ -57,8 +54,8 @@ uint32_t event_ring_cycle = 1;
 uint32_t ep0_enqueue = 0;
 uint32_t ep0_cycle   = 1;
 
-uint32_t ep1in_enqueue[XHCI_MAX_SLOTS+1] = {0};
-uint32_t ep1in_cycle[XHCI_MAX_SLOTS+1]   = {0};  // initialised to 1 per-slot in xhci_configure_endpoint
+uint32_t ep1in_enqueue = 0;
+uint32_t ep1in_cycle   = 1;
 
 // Device info saved across enumeration steps
 static uint32_t dev_speed = 0;
@@ -363,8 +360,10 @@ void xhci_scan_ports(void) {
 
       xhci_enable_slot(port);
 
-      // Stop scanning once we have filled all available slots.
-      if (xhci_dev.num_attached >= XHCI_MAX_SLOTS)
+      // The driver drives a single device context at a time, so once a class
+      // driver has claimed a device (e.g. the keyboard), stop scanning -- a
+      // later port would otherwise overwrite the shared context.
+      if (xhci_dev.device_attached)
         break;
     }
   }
@@ -482,10 +481,10 @@ int xhci_address_device(uint32_t slot_id, uint32_t port) {
   input_ctx.ep[0].dw4 = 8;
 
   XDBG("Input Context:  0x%lx\n", (uint64_t)&input_ctx);
-  XDBG("Device Context: 0x%lx\n", (uint64_t)&device_ctx[slot_id]);
+  XDBG("Device Context: 0x%lx\n", (uint64_t)&device_ctx);
 
   // === Point DCBAAP[slot_id] at the output Device Context ===
-  dcbaap[slot_id] = (uint64_t)&device_ctx[slot_id];
+  dcbaap[slot_id] = (uint64_t)&device_ctx;
 
   // === Address Device TRB ===
   // Parameter = Input Context pointer (16-byte aligned, page-aligned here)
@@ -546,7 +545,7 @@ int xhci_address_device(uint32_t slot_id, uint32_t port) {
   // keep the slot if a class driver claimed it (HID today); otherwise the
   // caller frees it so the next root-hub device can use it.
   int kept = usb_attach_device(slot_id, iface_class, iface_subclass, iface_protocol);
-  if (kept) xhci_dev.num_attached++;
+  xhci_dev.device_attached = kept;
   return kept;
 }
 
@@ -977,13 +976,13 @@ int xhci_set_configuration(uint32_t slot_id, uint8_t config_val) {
   // xHCI Configure Endpoint: register EP1 IN (context index = 2*N+1 for IN)
   uint32_t ep_ctx_idx = (uint32_t)(ep1_in_number * 2 + 1);  // e.g. EP1 IN = 3
 
-  // Init EP1 IN transfer ring for this slot
-  memset((void *)ep1in_ring[slot_id], 0, sizeof(ep1in_ring[slot_id]));
-  ep1in_ring[slot_id][255].Parameter = (uint64_t)&ep1in_ring[slot_id][0];
-  ep1in_ring[slot_id][255].Status    = 0;
-  ep1in_ring[slot_id][255].Control   = (TRB_TYPE_LINK << 10) | (1U << 1) | 1;
-  ep1in_enqueue[slot_id] = 0;
-  ep1in_cycle[slot_id]   = 1;
+  // Init EP1 IN transfer ring
+  memset((void *)ep1in_ring, 0, sizeof(ep1in_ring));
+  ep1in_ring[255].Parameter = (uint64_t)&ep1in_ring[0];
+  ep1in_ring[255].Status    = 0;
+  ep1in_ring[255].Control   = (TRB_TYPE_LINK << 10) | (1U << 1) | 1;
+  ep1in_enqueue = 0;
+  ep1in_cycle   = 1;
 
   // Convert USB bInterval → xHCI Interval (power-of-2 in 125 μs microframes)
   uint8_t xhci_interval;
@@ -1017,7 +1016,7 @@ int xhci_set_configuration(uint32_t slot_id, uint8_t config_val) {
   epc->dw0 = (uint32_t)xhci_interval << 16;
   // CErr=3, EPType=Interrupt IN, MaxPacketSize
   epc->dw1 = (3U << 1) | (XHCI_EP_TYPE_INTERRUPT_IN << 3) | ((uint32_t)ep1_in_mps << 16);
-  uint64_t ep1in_addr = (uint64_t)&ep1in_ring[slot_id][0];
+  uint64_t ep1in_addr = (uint64_t)&ep1in_ring[0];
   epc->dw2 = (uint32_t)(ep1in_addr & ~0xFULL) | 1;  // DCS=1
   epc->dw3 = (uint32_t)(ep1in_addr >> 32);
   epc->dw4 = ep1_in_mps;  // AvgTRBLength = MPS for interrupt
@@ -1184,7 +1183,7 @@ void xhci_enable_msi(uint8_t vector) {
 void init_xhci_driver(void) {
   printf("xHCI Driver - MMIO Base: 0x%lx\n", xhci_dev.base_mmio);
 
-  xhci_dev.num_attached = 0;
+  xhci_dev.device_attached = 0;
   xhci_dev.cap_regs = (XhciCapabilityRegs *)xhci_dev.base_mmio;
   uint64_t op_base = xhci_dev.base_mmio + xhci_dev.cap_regs->CapLength;
   xhci_dev.op_regs = (XhciOperationalRegs *)op_base;

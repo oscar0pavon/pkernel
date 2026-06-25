@@ -162,10 +162,7 @@ struct XhciInputControlContext {
 // DCI, so the array must cover all 31 possible endpoint contexts -- writing the
 // context to a fixed slot (ep1in) made any non-EP1 device fail Configure
 // Endpoint with a Parameter Error (code 17).
-#define XHCI_MAX_EP_CTX  31
-// Max simultaneous xHCI slots (devices) this driver supports. Arrays indexed
-// by slot_id (1-based) so size = XHCI_MAX_SLOTS + 1.
-#define XHCI_MAX_SLOTS   4
+#define XHCI_MAX_EP_CTX 31
 
 // Input Context = Control + Slot + 31 endpoint contexts
 struct XhciInputContext {
@@ -188,9 +185,10 @@ typedef struct XHCIDevice {
   uint64_t base_mmio;
   uint32_t max_ports;
 
-  // Number of devices that have been fully enumerated and claimed by a driver.
-  // setup_pci() uses it to decide whether to keep probing other xHCI controllers.
-  int num_attached;
+  // Set to 1 once a device has been fully enumerated (addressed + configured)
+  // on this controller. setup_pci() uses it to decide whether to keep probing
+  // the remaining xHCI controllers or stop on this one.
+  int device_attached;
 
   // Register pointers
   volatile uint32_t *pci_regs;
@@ -250,9 +248,9 @@ uint32_t xhci_control_in(uint32_t slot_id, uint64_t setup,
 uint32_t ep0_control_nodata(uint32_t slot_id, uint64_t setup);
 
 extern volatile uint8_t descriptor_buffer[256];
-extern volatile struct XhciTRB ep1in_ring[XHCI_MAX_SLOTS+1][256];
-extern uint32_t ep1in_enqueue[XHCI_MAX_SLOTS+1];
-extern uint32_t ep1in_cycle[XHCI_MAX_SLOTS+1];
+extern volatile struct XhciTRB ep1in_ring[256];
+extern uint32_t ep1in_enqueue;
+extern uint32_t ep1in_cycle;
 
 // Endpoint info populated during Step 11, consumed by Steps 12–14
 extern uint8_t  ep1_in_addr;
