@@ -108,11 +108,6 @@ static void usb_kbd_service(void) {
 
     if (trb_type == TRB_TYPE_TRANSFER_EVENT &&
         (completion_code == 1 || completion_code == 13)) {
-      // Diagnostic: dump the raw report so the native (non-boot) layout is
-      // visible. Remove once the report format is confirmed.
-      printf("RPT: %02x %02x %02x %02x %02x %02x %02x %02x\n",
-             kbd_report[0], kbd_report[1], kbd_report[2], kbd_report[3],
-             kbd_report[4], kbd_report[5], kbd_report[6], kbd_report[7]);
       xhci_process_key_report();
       got_transfer = 1;
     }
@@ -194,6 +189,40 @@ static int usb_kbd_get_report_descriptor(uint32_t slot_id) {
 // ============================================================================
 // Attach: turn a configured HID device into a live keyboard.
 // ============================================================================
+
+// Returns 1 if the HID report descriptor in descriptor_buffer describes a
+// keyboard application: Usage Page Generic Desktop (0x01) + Usage Keyboard
+// (0x06). A mouse has Usage 0x02 at the same level — this rejects it even
+// when the interface declared bInterfaceProtocol = 0x01. If the descriptor
+// could not be fetched (got_desc == 0) the caller skips this check and falls
+// back to the protocol-byte identification so boot-protocol-only keyboards
+// that stall GET_DESCRIPTOR are not incorrectly rejected.
+static int hid_desc_is_keyboard(void) {
+  uint16_t len = (hid_report_len > 256) ? 256 : hid_report_len;
+  uint8_t usage_page = 0;
+  uint16_t i = 0;
+  while (i < len) {
+    uint8_t prefix = descriptor_buffer[i];
+    if (prefix == 0xFE) break;          // long item — unsupported, stop
+    uint8_t sz   = prefix & 0x03;
+    uint8_t type = (prefix >> 2) & 0x03;
+    uint8_t tag  = (prefix >> 4) & 0x0F;
+    if (sz == 3) sz = 4;                // HID encoding: 3 → 4 data bytes
+
+    uint32_t val = 0;
+    for (uint8_t b = 0; b < sz && i + 1 + b < len; b++)
+      val |= (uint32_t)descriptor_buffer[i + 1 + b] << (b * 8);
+
+    if (type == 1 && tag == 0)          // Global: Usage Page
+      usage_page = (uint8_t)val;
+    else if (type == 2 && tag == 0)     // Local: Usage
+      if (usage_page == 0x01 && val == 0x06) return 1;
+
+    i += 1 + sz;
+  }
+  return 0;
+}
+
 // Called from usb_attach_device() after xHCI enumeration. Fetches the HID
 // report descriptor, then queues the first interrupt-IN TRB. MSI fires when
 // the device sends a report; usb_kbd_isr() takes over from there.
@@ -215,7 +244,7 @@ static void usb_kbd_set_boot_protocol(uint32_t slot_id) {
     XDBG("SET_PROTOCOL(boot) accepted\n");
 }
 
-void usb_kbd_attach(uint32_t slot_id) {
+int usb_kbd_attach(uint32_t slot_id) {
   XDBG("=== Arming keyboard interrupt (slot %d, EP%d IN, MPS=%d) ===\n",
        slot_id, ep1_in_number, ep1_in_mps);
 
@@ -228,9 +257,17 @@ void usb_kbd_attach(uint32_t slot_id) {
     printf("USB: keyboard is non-boot (subclass %d); using native reports\n",
            iface_subclass);
 
-  // The HID Report descriptor isn't needed to read boot reports; fetch it for
-  // debug if the device offers it, but don't fail the attach when it stalls.
-  usb_kbd_get_report_descriptor(slot_id);
+  // Fetch the HID report descriptor. If the fetch succeeds, verify the
+  // descriptor declares a keyboard application (Usage Page 0x01 + Usage 0x06).
+  // A mouse that also exposes bInterfaceProtocol=0x01 is caught here — its
+  // descriptor will have Usage 0x02 (Mouse) instead. If the fetch fails (device
+  // stalls) we skip the check so boot-protocol-only keyboards are not rejected.
+  int got_desc = usb_kbd_get_report_descriptor(slot_id);
+  if (got_desc && !hid_desc_is_keyboard()) {
+    printf("USB: HID report descriptor is not a keyboard; skipping slot %d\n",
+           slot_id);
+    return 0;
+  }
 
   kbd_slot_id   = slot_id;
   kbd_db_target = (uint32_t)ep1_in_number * 2 + 1;
@@ -244,4 +281,5 @@ void usb_kbd_attach(uint32_t slot_id) {
 
   printf("USB: keyboard ready on slot %d\n", slot_id);
   XDBG("=== Keyboard armed — polling + MSI ===\n");
+  return 1;
 }

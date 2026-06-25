@@ -20,10 +20,8 @@ int usb_attach_device(uint32_t slot_id, uint8_t iface_class,
       // mice, wireless receivers, gaming-keyboard vendor functions (protocol 0)
       // -- must NOT stop the port scan, or we never reach the real keyboard
       // sitting on a later port. Returning 0 keeps xhci_scan_ports going.
-      if (iface_protocol == USB_HID_PROTOCOL_KBD) {
-        usb_kbd_attach(slot_id);
-        return 1;
-      }
+      if (iface_protocol == USB_HID_PROTOCOL_KBD)
+        return usb_kbd_attach(slot_id);
       printf("USB: HID device proto 0x%x on slot %d (not a keyboard); skipping\n",
              iface_protocol, slot_id);
       return 0;
