@@ -3,12 +3,6 @@
 #include "input_output.h"
 #include <stdint.h>
 
-// xAPIC registers are memory-mapped at 0xFEE00000 (identity-mapped in kernel_pd3)
-#define LAPIC_BASE 0xFEE00000UL
-
-static inline volatile uint32_t *lapic_reg(uint32_t offset) {
-  return (volatile uint32_t *)(LAPIC_BASE + offset);
-}
 
 #define LAPIC_ID  lapic_reg(0x020)
 #define LAPIC_SVR lapic_reg(0x0F0)  // Spurious Interrupt Vector Register

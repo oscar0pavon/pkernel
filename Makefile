@@ -29,6 +29,7 @@ pkernel: $(OBJS) $(assembly_objects) drivers.a
 install:
 	cp pkernel /root/pboot/virtual_machine/disk/pkernel
 	cp pkernel /boot/pkernel
+	@echo "Installed on /boot/pkernel"
 
 clean:
 	rm -f *.o
