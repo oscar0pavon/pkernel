@@ -3,6 +3,7 @@
 #include "xhci.h"
 #include "../lapic.h"
 #include "../input.h"
+#include "../sched.h"
 
 // Saved by usb_kbd_attach(), consumed by usb_kbd_isr()
 static uint32_t kbd_slot_id  = 0;
@@ -75,9 +76,13 @@ static void xhci_queue_kbd_trb(void) {
   xhci_dev.doorbell_regs[kbd_slot_id] = kbd_db_target;
 }
 
-// C-level ISR called from irq_xhci_handler (idt_asm.s).
-// Runs with interrupts disabled (interrupt gate clears RFLAGS.IF on entry).
-void usb_kbd_isr(void) {
+// Drain the event ring, process any keyboard reports, and re-arm the endpoint.
+// Shared by usb_kbd_isr() (MSI path) and usb_kbd_poll_task() (polling path).
+// The caller must guarantee this does not run re-entrantly: the ISR runs with
+// RFLAGS.IF cleared (interrupt gate), and the poll task wraps it in cli/sti.
+// Events are posted to the event ring by the controller whether or not the MSI
+// is delivered, so polling works even when interrupts never arrive (real HW).
+static void usb_kbd_service(void) {
   // Clear IMAN.IP (bit 0 = Interrupt Pending; write-1-to-clear)
   xhci_dev.int_0_regs->Iman |= 1;
   // Clear USBSTS.EINT (bit 3; write-1-to-clear)
@@ -117,9 +122,28 @@ void usb_kbd_isr(void) {
   // events do not consume a TRB so there is nothing to replace.
   if (got_transfer)
     xhci_queue_kbd_trb();
+}
 
-  // Acknowledge the interrupt to the LAPIC
-  lapic_eoi();
+// C-level ISR called from irq_xhci_handler (idt_asm.s).
+// Runs with interrupts disabled (interrupt gate clears RFLAGS.IF on entry).
+void usb_kbd_isr(void) {
+  usb_kbd_service();
+  lapic_eoi();           // acknowledge the interrupt to the LAPIC
+}
+
+// Polling fallback: drain the event ring on a timer instead of relying on MSI.
+// Real Intel xHCI controllers frequently fail to deliver the MSI to the LAPIC
+// (firmware/IOMMU state), so the interrupt-driven path alone leaves the
+// keyboard dead even though enumeration succeeded. The controller still posts
+// transfer events to the event ring, so polling picks them up regardless.
+// cli/sti makes the drain atomic against the MSI ISR if it ever does fire.
+static void usb_kbd_poll_task(void) {
+  while (1) {
+    asm volatile("cli");
+    usb_kbd_service();
+    asm volatile("sti");
+    task_sleep(8);       // ~100 Hz poll; well above the HID report interval
+  }
 }
 
 
@@ -213,6 +237,11 @@ void usb_kbd_attach(uint32_t slot_id) {
 
   xhci_queue_kbd_trb();
 
+  // Drive the keyboard by polling the event ring as well as via MSI. MSI is
+  // unreliable on real Intel xHCI, so this task is what actually delivers
+  // keystrokes on hardware; it starts running once the scheduler is up.
+  task_create("usbkbd", usb_kbd_poll_task);
+
   printf("USB: keyboard ready on slot %d\n", slot_id);
-  XDBG("=== Keyboard armed — waiting for MSI ===\n");
+  XDBG("=== Keyboard armed — polling + MSI ===\n");
 }
