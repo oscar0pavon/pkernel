@@ -1,4 +1,5 @@
 #include "shell.h"
+#include "types.h"
 #include "input.h"
 #include "console.h"
 #include "memory.h"
@@ -22,19 +23,32 @@ static void cmd_help(void) {
     printf("commands: help  clear  mem  uptime  tasks  lspci  reboot  poweroff\n");
 }
 
+// Decode one AML integer operand: ZeroOp(0x00)=0, OnesOp(0xFF)=0xFF,
+// ByteConst(0x0A XX)=XX. Returns the value; advances *pp past the operand.
+static uint8_t aml_read_byte(uint8_t **pp) {
+    uint8_t op = *(*pp)++;
+    if (op == 0x0A) return *(*pp)++;   // ByteConst
+    if (op == 0xFF) return 0xFF;        // OnesOp
+    return 0;                           // ZeroOp (0x00) or anything else → 0
+}
+
 static void cmd_poweroff(void) {
     asm volatile("cli");
 
-    // Scan DSDT AML for: NameOp "_S5_" PackageOp pkglen NumElements 0x0A SLP_TYPa
-    uint8_t slp_typa = 5; // safe QEMU default
+    // Scan DSDT AML for "_S5_" and decode SLP_TYPa from its Package value.
+    // QEMU typically encodes it as ZeroOp (0x00); real hardware may use ByteConst.
+    uint8_t slp_typa = 0;
     if (DSDT && DSDT->header.length > 36) {
         uint8_t *p   = (uint8_t *)DSDT;
         uint8_t *end = p + DSDT->header.length - 9;
         for (; p < end; p++) {
+            // Match: NameOp "_S5_" PackageOp
             if (p[0] == 0x08 &&
                 p[1] == '_' && p[2] == 'S' && p[3] == '5' && p[4] == '_' &&
-                p[5] == 0x12 && p[8] == 0x0A) {
-                slp_typa = p[9];
+                p[5] == 0x12) {
+                // p[6] = PkgLength, p[7] = NumElements, p[8..] = elements
+                uint8_t *elem = p + 8;
+                slp_typa = aml_read_byte(&elem);
                 break;
             }
         }
