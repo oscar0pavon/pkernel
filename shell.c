@@ -19,7 +19,35 @@ static int str_eq(const char *a, const char *b) {
 }
 
 static void cmd_help(void) {
-    printf("commands: help  clear  mem  uptime  tasks  lspci  reboot\n");
+    printf("commands: help  clear  mem  uptime  tasks  lspci  reboot  poweroff\n");
+}
+
+static void cmd_poweroff(void) {
+    asm volatile("cli");
+
+    // Scan DSDT AML for: NameOp "_S5_" PackageOp pkglen NumElements 0x0A SLP_TYPa
+    uint8_t slp_typa = 5; // safe QEMU default
+    if (DSDT && DSDT->header.length > 36) {
+        uint8_t *p   = (uint8_t *)DSDT;
+        uint8_t *end = p + DSDT->header.length - 9;
+        for (; p < end; p++) {
+            if (p[0] == 0x08 &&
+                p[1] == '_' && p[2] == 'S' && p[3] == '5' && p[4] == '_' &&
+                p[5] == 0x12 && p[8] == 0x0A) {
+                slp_typa = p[9];
+                break;
+            }
+        }
+    }
+
+    if (FADT && FADT->PM1aControlBlock) {
+        uint32_t val = ((uint32_t)slp_typa << 10) | (1u << 13); // SLP_TYP | SLP_EN
+        output(val, (uint16_t)FADT->PM1aControlBlock);
+        if (FADT->PM1bControlBlock)
+            output(val, (uint16_t)FADT->PM1bControlBlock);
+    }
+
+    while (1) asm volatile("hlt");
 }
 
 static void cmd_reboot(void) {
@@ -92,6 +120,7 @@ static void dispatch(void) {
     else if (str_eq(line, "uptime")) cmd_uptime();
     else if (str_eq(line, "tasks"))  cmd_tasks();
     else if (str_eq(line, "lspci"))  cmd_lspci();
+    else if (str_eq(line, "poweroff")) cmd_poweroff();
     else if (str_eq(line, "reboot")) cmd_reboot();
     else    printf("unknown: %s\n", line);
 }
