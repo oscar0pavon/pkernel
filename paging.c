@@ -21,18 +21,30 @@ aligned4k static uint64_t kernel_pd3[512]; // Maps 3GB - 4GB (PCI config / high 
 #define PAGE_2MB 0x200000ULL
 #define PAGE_ADDR_MASK ~0xFFFULL
 
-// Return the page directory for a given PDPT slot, allocating and zeroing a
-// fresh one from the physical allocator if that slot is not present yet.
-// Only the first 512 GB (PML4 entry 0) is handled here, which is where every
-// framebuffer / MMIO BAR a real UEFI machine reports lives in practice.
-static uint64_t *paging_get_pd(uint64_t pdpt_index) {
-  if (!(kernel_pdpt[pdpt_index] & PAGE_PRESENT)) {
+// Return (or allocate) the PDPT for a given PML4 slot.
+// PML4[0] is pre-wired to kernel_pdpt in init_paging; other slots are
+// allocated on demand so BARs above 512 GB (e.g. at 0x380000000000 with
+// -smp on QEMU) can be mapped without a page fault.
+static uint64_t *paging_get_pdpt(uint64_t pml4_index) {
+  if (!(kernel_pml4[pml4_index] & PAGE_PRESENT)) {
+    uint64_t *pdpt = (uint64_t *)pmm_alloc_page();
+    for (int i = 0; i < 512; i++)
+      pdpt[i] = 0;
+    kernel_pml4[pml4_index] = (uint64_t)pdpt | PAGE_PRESENT | PAGE_READWRITE;
+  }
+  return (uint64_t *)(kernel_pml4[pml4_index] & PAGE_ADDR_MASK);
+}
+
+// Return (or allocate) the PD for a given PML4/PDPT slot pair.
+static uint64_t *paging_get_pd(uint64_t pml4_index, uint64_t pdpt_index) {
+  uint64_t *pdpt = paging_get_pdpt(pml4_index);
+  if (!(pdpt[pdpt_index] & PAGE_PRESENT)) {
     uint64_t *pd = (uint64_t *)pmm_alloc_page();
     for (int i = 0; i < 512; i++)
       pd[i] = 0;
-    kernel_pdpt[pdpt_index] = (uint64_t)pd | PAGE_PRESENT | PAGE_READWRITE;
+    pdpt[pdpt_index] = (uint64_t)pd | PAGE_PRESENT | PAGE_READWRITE;
   }
-  return (uint64_t *)(kernel_pdpt[pdpt_index] & PAGE_ADDR_MASK);
+  return (uint64_t *)(pdpt[pdpt_index] & PAGE_ADDR_MASK);
 }
 
 // Identity-map [phys, phys+size) using 2 MB huge pages. Safe to call over a
@@ -44,12 +56,9 @@ static void identity_map_region(uint64_t phys, uint64_t size) {
   for (uint64_t addr = start; addr < end; addr += PAGE_2MB) {
     uint64_t pml4_index = (addr >> 39) & 0x1FF;
     uint64_t pdpt_index = (addr >> 30) & 0x1FF;
-    uint64_t pd_index = (addr >> 21) & 0x1FF;
+    uint64_t pd_index   = (addr >> 21) & 0x1FF;
 
-    if (pml4_index != 0)
-      continue; // beyond the 512 GB window we link into PML4[0]
-
-    uint64_t *pd = paging_get_pd(pdpt_index);
+    uint64_t *pd = paging_get_pd(pml4_index, pdpt_index);
     pd[pd_index] = addr | PAGE_PRESENT | PAGE_READWRITE | PAGE_HUGE;
   }
 }
