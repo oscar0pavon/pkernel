@@ -9,6 +9,9 @@ struct XSDP_t *XSDP = NULL;
 struct DSDT_t *DSDT = NULL;
 struct XSDT_t *XSDT = NULL;
 
+int cpu_count = 0;
+uint8_t cpu_apic_ids[MAX_CPUS];
+
 void acpi_find_FADT() {}
 
 bool acpi_compare_signature(char *signature1, char *signature2) {
@@ -42,6 +45,30 @@ void parse_FADT() {
   }
 }
 
+void parse_MADT(struct MADT *madt) {
+  uint8_t *p = (uint8_t *)madt + 44; // skip fixed MADT header (36 + 4 + 4)
+  uint8_t *end = (uint8_t *)madt + madt->header.length;
+
+  while (p < end) {
+    uint8_t type = p[0];
+    uint8_t len  = p[1];
+
+    if (type == 0) { // Processor Local APIC
+      struct ProcessorLocalAPIC *lapic = (struct ProcessorLocalAPIC *)p;
+      if (lapic->flags & 1) { // bit 0: processor enabled
+        if (cpu_count < MAX_CPUS)
+          cpu_apic_ids[cpu_count++] = lapic->APIC_ID;
+      }
+    }
+
+    p += len;
+  }
+
+  printf("CPUs detected: %d\n", cpu_count);
+  for (int i = 0; i < cpu_count; i++)
+    printf("  CPU %d: APIC ID %d\n", i, cpu_apic_ids[i]);
+}
+
 void parse_XSDT() {
 
   // if (acpi_compare_signature(XSDT->header.signature, "XSDT")) {
@@ -63,7 +90,7 @@ void parse_XSDT() {
       continue;
     }
     if (acpi_compare_signature(myheader->signature, "APIC")) {
-      // printf("Fount MADT with size %d\n", myheader->length);
+      parse_MADT((struct MADT *)myheader);
     }
 
     // PCI Express Extended Configuration Space (ECAM).

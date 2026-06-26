@@ -159,11 +159,11 @@ struct MADT{
 
 struct ProcessorLocalAPIC{
     uint8_t type;
-    uint8_t length;//8 bytes
+    uint8_t length; // 8 bytes
     uint8_t ACPIProcessorUID;
     uint8_t APIC_ID;
-    uint16_t flags;
-};
+    uint32_t flags; // bit 0: enabled; bit 1: online-capable
+} __attribute__((packed));
 
 struct IOAPIC{
     uint8_t type;
@@ -191,6 +191,10 @@ extern struct XSDP_t* XSDP;
 extern struct DSDT_t* DSDT;
 
 extern struct XSDT_t* XSDT;
+
+#define MAX_CPUS 64
+extern int cpu_count;
+extern uint8_t cpu_apic_ids[MAX_CPUS];
 
 bool acpi_compare_signature(char* signature1, char* signature2);
 
