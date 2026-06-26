@@ -9,6 +9,7 @@
 #include "acpi.h"
 #include "input_output.h"
 
+
 #define LINE_MAX 256
 
 static char line[LINE_MAX];
@@ -23,49 +24,25 @@ static void cmd_help(void) {
     printf("commands: help  clear  mem  uptime  tasks  lspci  reboot  poweroff\n");
 }
 
-// Decode one AML integer operand: ZeroOp(0x00)=0, OnesOp(0xFF)=0xFF,
-// ByteConst(0x0A XX)=XX. Returns the value; advances *pp past the operand.
-static uint8_t aml_read_byte(uint8_t **pp) {
-    uint8_t op = *(*pp)++;
-    if (op == 0x0A) return *(*pp)++;   // ByteConst
-    if (op == 0xFF) return 0xFF;        // OnesOp
-    return 0;                           // ZeroOp (0x00) or anything else → 0
-}
 
 static void cmd_poweroff(void) {
     asm volatile("cli");
 
-    // Scan DSDT AML for "_S5_" and decode SLP_TYPa from its Package value.
-    // QEMU typically encodes it as ZeroOp (0x00); real hardware may use ByteConst.
-    uint8_t slp_typa = 0;
-    if (DSDT && DSDT->header.length > 36) {
-        uint8_t *p   = (uint8_t *)DSDT;
-        uint8_t *end = p + DSDT->header.length - 9;
-        for (; p < end; p++) {
-            // Match: NameOp "_S5_" PackageOp
-            if (p[0] == 0x08 &&
-                p[1] == '_' && p[2] == 'S' && p[3] == '5' && p[4] == '_' &&
-                p[5] == 0x12) {
-                // p[6] = PkgLength, p[7] = NumElements, p[8..] = elements
-                uint8_t *elem = p + 8;
-                slp_typa = aml_read_byte(&elem);
-                break;
-            }
-        }
-    }
-
+    printf("Goodbye\n");
     if (FADT && FADT->PM1aControlBlock) {
-        uint32_t val = ((uint32_t)slp_typa << 10) | (1u << 13); // SLP_TYP | SLP_EN
-        output(val, (uint16_t)FADT->PM1aControlBlock);
+        output(power_manager.poweroff, (uint16_t)FADT->PM1aControlBlock);
         if (FADT->PM1bControlBlock)
-            output(val, (uint16_t)FADT->PM1bControlBlock);
+            output(power_manager.poweroff, (uint16_t)FADT->PM1bControlBlock);
     }
 
-    while (1) asm volatile("hlt");
+    printf("Can't shutdown\n");
+    asm volatile("sti");
 }
 
 static void cmd_reboot(void) {
     asm volatile("cli");
+
+    printf("Restarting\n");
     // ACPI reset: write ResetValue to the FADT reset register (I/O port)
     if (FADT && FADT->ResetReg.address_space == 1)
         output_byte((uint8_t)FADT->ResetValue, (uint16_t)FADT->ResetReg.address);

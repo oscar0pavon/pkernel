@@ -5,8 +5,8 @@
 
 #ifndef _ACPI_H_
 #define _ACPI_H_
-
 #include "types.h"
+#include <stdint.h>
 
 struct XSDP_t {
 	char signature[8];
@@ -192,6 +192,14 @@ extern struct DSDT_t* DSDT;
 
 extern struct XSDT_t* XSDT;
 
+typedef struct PowerManager {
+ uint32_t poweroff; 
+ uint32_t reboot;
+}PowerManager;
+
+
+extern PowerManager power_manager;
+
 #define MAX_CPUS 64
 extern int cpu_count;
 extern uint8_t cpu_apic_ids[MAX_CPUS];
@@ -201,5 +209,7 @@ bool acpi_compare_signature(char* signature1, char* signature2);
 void parse_XSDT();
 
 void setup_acpi(uint64_t xsdt_address);
+
+void acpi_get_poweroff();
 
 #endif
