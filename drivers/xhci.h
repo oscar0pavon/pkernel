@@ -10,7 +10,7 @@
 #define MY_USB_ID 0x7a60
 #define PCI_INTERFACE_XHCI 0x30
 
-#define XDBG(...) do { if (xhci_debug) printf(__VA_ARGS__); } while(0)
+#define XDBG(...) do {} while(0)
 
 typedef struct XhciInterrupterRegs XhciInterrupterRegs;
 typedef struct XhciRuntimeRegs XhciRuntimeRegs;
@@ -206,24 +206,17 @@ extern XHCIDevice xhci_dev;
 // FUNCTION DECLARATIONS
 // ============================================================================
 
-// Debug toggle (0=off, 1=on)
-void xhci_set_debug(int enabled);
-
 // Core initialization functions
 void init_xhci_driver(void);
 void xhci_reset_controller(void);
-void xhci_init_structures(void);
 void xhci_setup_command_ring(void);
 void xhci_setup_event_ring(void);
 void xhci_start_controller(void);
 void xhci_scan_ports(void);
 
-// Debug/utility functions
-void xhci_test_dma_identity(void);
-void xhci_print_status(void);
-
 // Command submission
-void xhci_send_command(uint32_t trb_type, uint64_t parameter);
+// slot_id is placed in Control[31:24]; pass 0 for commands that don't use it.
+void xhci_send_command(uint32_t trb_type, uint64_t parameter, uint32_t slot_id);
 uint32_t xhci_poll_event_ring(void);  // returns slot_id on success, 0 on error
 
 // Device enumeration
@@ -252,7 +245,6 @@ extern volatile struct XhciTRB ep1in_ring[256];
 extern uint32_t ep1in_enqueue;
 extern uint32_t ep1in_cycle;
 
-// Endpoint info populated during Step 11, consumed by Steps 12–14
 extern uint8_t  ep1_in_addr;
 extern uint16_t ep1_in_mps;
 extern uint8_t  ep1_in_interval;
@@ -266,8 +258,6 @@ extern uint32_t command_ring_cycle;
 
 extern uint32_t event_ring_dequeue;
 extern uint32_t event_ring_cycle;
-
-extern int xhci_debug;
 
 extern volatile XhciEventTRB event_ring[256];
 

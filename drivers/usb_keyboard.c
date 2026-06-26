@@ -147,8 +147,6 @@ static void usb_kbd_poll_task(void) {
 // wValue=0x2200 (type=HID Report, index=0), wIndex=0, wLength=hid_report_len.
 // hid_report_len was captured by the xHCI config-descriptor walk.
 static int usb_kbd_get_report_descriptor(uint32_t slot_id) {
-  XDBG("=== GET_DESCRIPTOR HID Report (len=%d) ===\n", hid_report_len);
-
   if (hid_report_len == 0) {
     printf("ERROR: hid_report_len not set (config parse may have failed)\n");
     return 0;
@@ -169,18 +167,6 @@ static int usb_kbd_get_report_descriptor(uint32_t slot_id) {
   if (!xhci_control_in(slot_id, setup, descriptor_buffer, req_len)) {
     printf("ERROR: GET_DESCRIPTOR HID Report failed\n");
     return 0;
-  }
-
-  static const char hex_ch[] = "0123456789abcdef";
-  XDBG("HID Report Descriptor (%d bytes):\n", req_len);
-  if (xhci_debug) {
-    for (uint16_t i = 0; i < req_len; i++) {
-      uint8_t b = descriptor_buffer[i];
-      char s[4] = {hex_ch[(b >> 4) & 0xF], hex_ch[b & 0xF], ' ', '\0'};
-      printf("%s", s);
-      if ((i + 1) % 16 == 0) printf("\n");
-    }
-    if (req_len % 16 != 0) printf("\n");
   }
 
   return 1;
@@ -240,14 +226,10 @@ static void usb_kbd_set_boot_protocol(uint32_t slot_id) {
 
   if (!ep0_control_nodata(slot_id, setup))
     printf("WARNING: SET_PROTOCOL(boot) failed; reports may not be 8-byte\n");
-  else
-    XDBG("SET_PROTOCOL(boot) accepted\n");
+  ;
 }
 
 int usb_kbd_attach(uint32_t slot_id) {
-  XDBG("=== Arming keyboard interrupt (slot %d, EP%d IN, MPS=%d) ===\n",
-       slot_id, ep1_in_number, ep1_in_mps);
-
   // Only request Boot Protocol if the interface advertises the Boot subclass
   // (bInterfaceSubClass == 1). Sending SET_PROTOCOL to a non-boot device STALLs
   // and halts EP0, breaking later control transfers.
@@ -280,6 +262,5 @@ int usb_kbd_attach(uint32_t slot_id) {
   task_create("usbkbd", usb_kbd_poll_task);
 
   printf("USB: keyboard ready on slot %d\n", slot_id);
-  XDBG("=== Keyboard armed — polling + MSI ===\n");
   return 1;
 }
