@@ -5,6 +5,8 @@
 #include "lapic_timer.h"
 #include "sched.h"
 #include "drivers/pci.h"
+#include "acpi.h"
+#include "input_output.h"
 
 #define LINE_MAX 256
 
@@ -17,7 +19,17 @@ static int str_eq(const char *a, const char *b) {
 }
 
 static void cmd_help(void) {
-    printf("commands: help  clear  mem  uptime  tasks  lspci\n");
+    printf("commands: help  clear  mem  uptime  tasks  lspci  reboot\n");
+}
+
+static void cmd_reboot(void) {
+    asm volatile("cli");
+    // ACPI reset: write ResetValue to the FADT reset register (I/O port)
+    if (FADT && FADT->ResetReg.address_space == 1)
+        output_byte((uint8_t)FADT->ResetValue, (uint16_t)FADT->ResetReg.address);
+    // Fallback: pulse CPU reset line via PS/2 controller
+    output_byte(0xFE, 0x64);
+    while (1) asm volatile("hlt");
 }
 
 static void cmd_lspci(void) {
@@ -79,7 +91,8 @@ static void dispatch(void) {
     else if (str_eq(line, "mem"))    cmd_mem();
     else if (str_eq(line, "uptime")) cmd_uptime();
     else if (str_eq(line, "tasks"))  cmd_tasks();
-    else if (str_eq(line, "lspci")) cmd_lspci();
+    else if (str_eq(line, "lspci"))  cmd_lspci();
+    else if (str_eq(line, "reboot")) cmd_reboot();
     else    printf("unknown: %s\n", line);
 }
 
