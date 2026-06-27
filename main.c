@@ -1,14 +1,8 @@
 
-#include "library.h"
-#include "console.h"
-#include "framebuffer.h"
-#include "acpi.h"
-
-#include "input.h"
-
-#include "input_output.h"
 #include "pkernel.h"
-#include "memory.h"
+
+#include "console.h"
+#include "acpi.h"
 
 #include "gdt.h"
 #include "idt.h"
