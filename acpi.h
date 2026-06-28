@@ -200,9 +200,6 @@ typedef struct PowerManager {
 
 extern PowerManager power_manager;
 
-#define MAX_CPUS 64
-extern int cpu_count;
-extern uint8_t cpu_apic_ids[MAX_CPUS];
 
 bool acpi_compare_signature(char* signature1, char* signature2);
 

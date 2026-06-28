@@ -1,5 +1,6 @@
 #include "acpi.h"
 #include "console.h"
+#include "cpu.h"
 #include "drivers/pci.h"
 #include "drivers/xhci.h"
 #include <stdint.h>
@@ -9,12 +10,8 @@ struct XSDP_t *XSDP = NULL;
 struct DSDT_t *DSDT = NULL;
 struct XSDT_t *XSDT = NULL;
 
-int cpu_count = 0;
-uint8_t cpu_apic_ids[MAX_CPUS];
 
 PowerManager power_manager;
-
-void acpi_find_FADT() {}
 
 // Decode one AML integer operand: ZeroOp(0x00)=0, OnesOp(0xFF)=0xFF,
 // ByteConst(0x0A XX)=XX. Returns the value; advances *pp past the operand.
@@ -84,27 +81,9 @@ void parse_fadt() {
 }
 
 void parse_madt(struct MADT *madt) {
-  uint8_t *p = (uint8_t *)madt + 44; // skip fixed MADT header (36 + 4 + 4)
-  uint8_t *end = (uint8_t *)madt + madt->header.length;
-
-  while (p < end) {
-    uint8_t type = p[0];
-    uint8_t len  = p[1];
-
-    if (type == 0) { // Processor Local APIC
-      struct ProcessorLocalAPIC *lapic = (struct ProcessorLocalAPIC *)p;
-      if (lapic->flags & 1) { // bit 0: processor enabled
-        if (cpu_count < MAX_CPUS)
-          cpu_apic_ids[cpu_count++] = lapic->APIC_ID;
-      }
-    }
-
-    p += len;
-  }
-
-  printf("CPUs detected: %d\n", cpu_count);
-  for (int i = 0; i < cpu_count; i++)
-    printf("  CPU %d: APIC ID %d\n", i, cpu_apic_ids[i]);
+  
+  get_cpus(madt);
+  
 }
 
 void parse_xsdt() {
