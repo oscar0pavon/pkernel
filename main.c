@@ -61,7 +61,7 @@ void main(BootInfo* boot_info){
 
   task_create("idle", idle_task);
 
-  task_create("counter", print_every_seconds);
+  //task_create("counter", print_every_seconds);
 
   task_create("shell", shell_run);
 

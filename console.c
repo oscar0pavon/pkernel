@@ -270,7 +270,7 @@ void printf(const char* format, ...) {
                 }
             }
 
-            if (*format == 'd') {
+            if (*format == 'd' || *format == 'u') {
                 if (is_long) {
                     // Handle printing 64-bit signed/unsigned longs if you have a helper
                     print_uint(va_arg(arguments, uint64_t));

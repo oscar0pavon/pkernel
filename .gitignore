@@ -9,3 +9,4 @@ pboot
 BOOTX64.EFI
 NvVars
 virtual_machine/disk/*
+virtual_machine/*.img

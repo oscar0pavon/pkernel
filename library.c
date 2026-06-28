@@ -36,3 +36,11 @@ void copy_memory(void *destination, const void *source, size_t size)
 	for (size_t i = 0; i < size; ++i)
 		*to++ = *from++;
 }
+
+void *memcpy(void *dst, const void *src, size_t n)
+{
+	const unsigned char *s = src;
+	unsigned char *d = dst;
+	for (size_t i = 0; i < n; i++) d[i] = s[i];
+	return dst;
+}

@@ -17,6 +17,10 @@
 #define PCI_CLASS_SERIAL_BUS 0xC
 #define PCI_SUBCLASS_USB_CONTROLLER 0x3
 
+#define PCI_CLASS_STORAGE    0x01
+#define PCI_SUBCLASS_NVM     0x08
+#define PCI_PROGIF_NVME      0x02
+
 #define BAR0 0x10
 #define BAR1 0x14
 
@@ -33,8 +37,9 @@
 // Bit 2: Allows device to perform DMA to RAM
 #define PCI_CMD_BUS_MASTER   (1 << 2) 
 
-// Global pointer to track the discovered MMIO base address
+// ECAM base address and bus range from the ACPI MCFG table
 extern uint64_t pcie_mmio_base_address;
+extern uint8_t  pcie_end_bus;
 
 typedef struct PciDevice {
 	u8 bus;

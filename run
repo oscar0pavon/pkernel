@@ -9,6 +9,8 @@ qemu-system-x86_64 -enable-kvm \
   -drive file=fat:rw:./virtual_machine/disk/,format=raw,media=disk\
   -device qemu-xhci,id=xhci \
   -device usb-kbd,bus=xhci.0 \
+  -drive file=./virtual_machine/nvme.img,if=none,id=nvme0 \
+  -device nvme,drive=nvme0,serial=pkernel0 \
   -m 256M \
   -display gtk,show-tabs=off,show-menubar=off \
   -serial stdio

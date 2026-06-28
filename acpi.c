@@ -114,6 +114,7 @@ void parse_xsdt() {
           (struct MCFGStructureEntry *)(table_bytes + 44);
 
       pcie_mmio_base_address = first_entry->BaseAddress;
+      pcie_end_bus           = first_entry->EndBusNumber;
     }
   }
 }
