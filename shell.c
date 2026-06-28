@@ -67,12 +67,19 @@ static void cmd_nvme(void) {
         printf("  size:     %lu MB  (%lu sectors x %u B)\n",
                mb, d->sector_count, d->sector_size);
 
-        // Read sector 0 and show first 16 bytes as a sanity check
-        static uint8_t sec0[512];
-        if (nvme_read(i, 0, 1, sec0) == 0) {
-            printf("  LBA 0:   ");
-            for (int j = 0; j < 16; j++) printf("%02x ", sec0[j]);
-            printf("\n");
+        // Read LBA 1 — on a GPT disk this is the GPT header, which begins
+        // with the ASCII signature "EFI PART". Dumping it proves the DMA
+        // round-trip actually moved data (LBA 0's first bytes are zero on a
+        // GPT disk, so they can't distinguish a real read from an empty buffer).
+        static uint8_t sec1[512];
+        if (nvme_read(i, 1, 1, sec1) == 0) {
+            printf("  LBA 1:   ");
+            for (int j = 0; j < 16; j++) printf("%02x ", sec1[j]);
+            printf("  '");
+            for (int j = 0; j < 8; j++)
+                printf("%s", (char[]){ (sec1[j] >= ' ' && sec1[j] <= '~')
+                                       ? (char)sec1[j] : '.', '\0' });
+            printf("'\n");
         }
     }
 }
