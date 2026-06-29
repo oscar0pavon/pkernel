@@ -7,6 +7,7 @@
 #include "sched.h"
 #include "drivers/pci.h"
 #include "drivers/nvme.h"
+#include "block.h"
 #include "acpi.h"
 #include "input_output.h"
 
@@ -22,7 +23,18 @@ static int str_eq(const char *a, const char *b) {
 }
 
 static void cmd_help(void) {
-    printf("commands: help  clear  mem  uptime  tasks  lspci  nvme  reboot  poweroff\n");
+    printf("commands: help  clear  mem  uptime  tasks  lspci  nvme  lsblk  reboot  poweroff\n");
+}
+
+static void cmd_lsblk(void) {
+    if (block_device_count == 0) { printf("no block devices\n"); return; }
+    for (int i = 0; i < block_device_count; i++) {
+        BlockDevice *d = &block_devices[i];
+        uint64_t mb = (d->sector_count / 1024) * d->sector_size / 1024;
+        printf("%s  %lu MB  (%lu x %u B)  %s\n",
+               d->name, mb, d->sector_count, d->sector_size,
+               d->write ? "rw" : "ro");
+    }
 }
 
 
@@ -67,12 +79,15 @@ static void cmd_nvme(void) {
         printf("  size:     %lu MB  (%lu sectors x %u B)\n",
                mb, d->sector_count, d->sector_size);
 
-        // Read LBA 1 — on a GPT disk this is the GPT header, which begins
-        // with the ASCII signature "EFI PART". Dumping it proves the DMA
-        // round-trip actually moved data (LBA 0's first bytes are zero on a
-        // GPT disk, so they can't distinguish a real read from an empty buffer).
+        // Read LBA 1 through the generic block layer — on a GPT disk this is
+        // the GPT header, which begins with the ASCII signature "EFI PART".
+        // Dumping it proves the DMA round-trip actually moved data (LBA 0's
+        // first bytes are zero on a GPT disk, so they can't distinguish a real
+        // read from an empty buffer). Going via block_read also exercises the
+        // BlockDevice dispatch rather than calling the driver directly.
         static uint8_t sec1[512];
-        if (nvme_read(i, 1, 1, sec1) == 0) {
+        BlockDevice *bd = &block_devices[i];
+        if (block_read(bd, 1, 1, sec1) == 0) {
             printf("  LBA 1:   ");
             for (int j = 0; j < 16; j++) printf("%02x ", sec1[j]);
             printf("  '");
@@ -145,6 +160,7 @@ static void dispatch(void) {
     else if (str_eq(line, "tasks"))  cmd_tasks();
     else if (str_eq(line, "lspci"))  cmd_lspci();
     else if (str_eq(line, "nvme"))   cmd_nvme();
+    else if (str_eq(line, "lsblk"))  cmd_lsblk();
     else if (str_eq(line, "poweroff")) cmd_poweroff();
     else if (str_eq(line, "reboot")) cmd_reboot();
     else    printf("unknown: %s\n", line);

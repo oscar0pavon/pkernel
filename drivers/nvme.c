@@ -2,6 +2,7 @@
 #include "../memory.h"
 #include "../paging.h"
 #include "../console.h"
+#include "../block.h"
 #include <string.h>
 #include <stdint.h>
 
@@ -79,6 +80,15 @@ static void str_trim(char *dst, const uint8_t *src, int len) {
   for (int i = 0; i < len; i++) dst[i] = (char)src[i];
   dst[len] = '\0';
   for (int i = len - 1; i >= 0 && dst[i] == ' '; i--) dst[i] = '\0';
+}
+
+// ============================================================================
+// Block-layer adapter: bridges a BlockDevice back to nvme_read via the unit
+// index stashed in dev->unit.
+// ============================================================================
+static int nvme_block_read(BlockDevice *dev, uint64_t lba, uint32_t count,
+                           void *buf) {
+  return nvme_read((int)dev->unit, lba, count, buf);
 }
 
 // ============================================================================
@@ -212,11 +222,17 @@ void nvme_probe(uint64_t mmio_base, volatile uint32_t *pci_regs) {
   d->sector_count = nsze;
   d->sector_size  = blksz;
   d->ready        = 1;
+  int idx = nvme_drive_count;
   nvme_drive_count++;
 
   uint64_t mb = (nsze >> 20) * blksz + ((nsze & 0xFFFFF) * blksz >> 20);
-  printf("nvme%d: %lu sectors x %u bytes = %lu MB\n",
-         nvme_drive_count - 1, nsze, blksz, mb);
+  printf("nvme%d: %lu sectors x %u bytes = %lu MB\n", idx, nsze, blksz, mb);
+
+  // Expose this namespace through the generic block layer. Read-only for now
+  // (write == NULL) until nvme_write lands. NVME_MAX_DRIVES <= 9, so a single
+  // digit suffix is sufficient.
+  char name[6] = {'n', 'v', 'm', 'e', (char)('0' + idx), '\0'};
+  block_register(name, blksz, nsze, (uint32_t)idx, NULL, nvme_block_read, NULL);
 }
 
 // ============================================================================
