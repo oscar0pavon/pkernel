@@ -13,15 +13,26 @@
 int       nvme_drive_count = 0;
 NvmeDrive nvme_drives[NVME_MAX_DRIVES];
 
-static volatile NvmeRegs *nvme_regs;
-static NvmeQueue aq;   // Admin queue
-static NvmeQueue ioq;  // I/O queue 1
+// Per-controller queue state. A machine can have several NVMe controllers
+// (this box has two Kingstons on buses 04 and 06); each owns its own admin and
+// I/O queues with their own doorbells, so this state MUST be per-controller.
+// A single shared copy made every drive's reads land on the last one probed.
+static NvmeQueue aq_q[NVME_MAX_DRIVES];   // Admin queue, per controller
+static NvmeQueue ioq_q[NVME_MAX_DRIVES];  // I/O queue 1, per controller
 
-// Page-aligned DMA buffers.  These are identity-mapped so virtual == physical.
-aligned4k static NvmeSqe asq[NVME_QUEUE_DEPTH];
-aligned4k static NvmeCqe acq[NVME_QUEUE_DEPTH];
-aligned4k static NvmeSqe iosq_buf[NVME_QUEUE_DEPTH];
-aligned4k static NvmeCqe iocq_buf[NVME_QUEUE_DEPTH];
+// Per-controller DMA queue memory. Each queue base must be page-aligned and
+// physically contiguous (PC=1); the aligned4k members give every queue its own
+// 4 KB-aligned slot, and the array stride stays a multiple of 4 KB.
+typedef struct {
+  aligned4k NvmeSqe asq[NVME_QUEUE_DEPTH];   // admin submission (64 B entries)
+  aligned4k NvmeCqe acq[NVME_QUEUE_DEPTH];   // admin completion (16 B entries)
+  aligned4k NvmeSqe iosq[NVME_QUEUE_DEPTH];  // I/O submission
+  aligned4k NvmeCqe iocq[NVME_QUEUE_DEPTH];  // I/O completion
+} NvmeCtrlMem;
+aligned4k static NvmeCtrlMem ctrl_mem[NVME_MAX_DRIVES];
+
+// Shared scratch — only ever touched while serialised (probe runs once at boot,
+// and the shell is the single NVMe caller), so one copy is fine.
 aligned4k static uint8_t idbuf[4096];    // Identify response
 aligned4k        uint8_t nvme_rw_buf[4096]; // Exported read/write bounce buffer
 
@@ -104,12 +115,17 @@ static int nvme_block_write(BlockDevice *dev, uint64_t lba, uint32_t count,
 void nvme_probe(uint64_t mmio_base, volatile uint32_t *pci_regs) {
   if (nvme_drive_count >= NVME_MAX_DRIVES) return;
 
+  int          idx  = nvme_drive_count;  // this controller's slot
+  NvmeQueue   *aq   = &aq_q[idx];
+  NvmeQueue   *ioq  = &ioq_q[idx];
+  NvmeCtrlMem *mem  = &ctrl_mem[idx];
+
   // NVMe MMIO covers at minimum: registers (0x0–0x3F) + doorbells at 0x1000.
   // Map 64 KB to be safe for controllers with a large doorbell stride.
   paging_map_mmio(mmio_base, 0x10000);
-  nvme_regs = (volatile NvmeRegs *)mmio_base;
+  volatile NvmeRegs *regs = (volatile NvmeRegs *)mmio_base;
 
-  uint64_t cap   = nvme_regs->cap;
+  uint64_t cap   = regs->cap;
   uint32_t dstrd = (uint32_t)((cap >> 32) & 0xF); // doorbell stride selector
   uint32_t to    = (uint32_t)((cap >> 24) & 0xFF); // timeout in 500 ms units
   uint32_t mqes  = (uint32_t)(cap & 0xFFFF);       // max queue entries - 1
@@ -121,64 +137,64 @@ void nvme_probe(uint64_t mmio_base, volatile uint32_t *pci_regs) {
   uint32_t stride = 4U << dstrd;  // bytes between doorbell registers
 
   printf("nvme: CAP=0x%lx VS=0x%x dstrd=%d mqes=%d\n",
-         cap, nvme_regs->vs, dstrd, mqes);
+         cap, regs->vs, dstrd, mqes);
 
   // Enable PCI Memory Space + Bus Mastering so DMA works.
   pci_regs[1] |= (1U << 1) | (1U << 2);
 
   // ---- Disable controller (EN=0) and wait for RDY=0 ----
-  nvme_regs->cc &= ~1U;
+  regs->cc &= ~1U;
   for (uint32_t i = 0; i < 2000000; i++) {
-    if (!(nvme_regs->csts & 1)) break;
+    if (!(regs->csts & 1)) break;
     __asm__("pause");
   }
-  if (nvme_regs->csts & 1) {
-    printf("nvme: controller did not disable (CSTS=0x%x)\n", nvme_regs->csts);
+  if (regs->csts & 1) {
+    printf("nvme: controller did not disable (CSTS=0x%x)\n", regs->csts);
     return;
   }
 
   // ---- Set up Admin queues ----
-  memset(asq, 0, sizeof(asq));
-  memset(acq, 0, sizeof(acq));
-  nvme_regs->asq = (uint64_t)asq;
-  nvme_regs->acq = (uint64_t)acq;
+  memset(mem->asq, 0, sizeof(mem->asq));
+  memset(mem->acq, 0, sizeof(mem->acq));
+  regs->asq = (uint64_t)mem->asq;
+  regs->acq = (uint64_t)mem->acq;
   // AQA: [11:0] ASQS = qdepth-1 | [27:16] ACQS = qdepth-1
-  nvme_regs->aqa = ((qdepth - 1) << 16) | (qdepth - 1);
+  regs->aqa = ((qdepth - 1) << 16) | (qdepth - 1);
 
   // Wire admin queue doorbell pointers (doorbells start at base + 0x1000).
   // Admin SQ Tail = base + 0x1000 + 0*stride
   // Admin CQ Head = base + 0x1000 + 1*stride
   uint8_t *db = (uint8_t *)mmio_base + 0x1000;
-  aq.sq     = asq;
-  aq.cq     = acq;
-  aq.sq_db  = (volatile uint32_t *)(db + 0 * stride);
-  aq.cq_db  = (volatile uint32_t *)(db + 1 * stride);
-  aq.sq_tail = 0;
-  aq.cq_head = 0;
-  aq.phase   = 1;
-  aq.cid     = 0;
+  aq->sq     = mem->asq;
+  aq->cq     = mem->acq;
+  aq->sq_db  = (volatile uint32_t *)(db + 0 * stride);
+  aq->cq_db  = (volatile uint32_t *)(db + 1 * stride);
+  aq->sq_tail = 0;
+  aq->cq_head = 0;
+  aq->phase   = 1;
+  aq->cid     = 0;
 
   // ---- Enable controller ----
   // CC: IOSQES=6 (2^6=64 B), IOCQES=4 (2^4=16 B), MPS=0 (4 KB), EN=1
-  nvme_regs->cc = (6U << 16) | (4U << 20) | 1U;
+  regs->cc = (6U << 16) | (4U << 20) | 1U;
 
   for (uint32_t i = 0; i < 2000000; i++) {
-    uint32_t csts = nvme_regs->csts;
+    uint32_t csts = regs->csts;
     if (csts & 2) { printf("nvme: fatal status (CSTS=0x%x)\n", csts); return; }
     if (csts & 1) break;
     __asm__("pause");
   }
-  if (!(nvme_regs->csts & 1)) {
-    printf("nvme: controller did not become ready (CSTS=0x%x)\n", nvme_regs->csts);
+  if (!(regs->csts & 1)) {
+    printf("nvme: controller did not become ready (CSTS=0x%x)\n", regs->csts);
     return;
   }
   printf("nvme: controller ready\n");
 
   // ---- Identify Controller (CNS=0x01) ----
   memset(idbuf, 0, sizeof(idbuf));
-  if (nvme_cmd(&aq, 0x06, 0, (uint64_t)idbuf, 0, 0x01, 0, 0) != 0) return;
+  if (nvme_cmd(aq, 0x06, 0, (uint64_t)idbuf, 0, 0x01, 0, 0) != 0) return;
 
-  NvmeDrive *d = &nvme_drives[nvme_drive_count];
+  NvmeDrive *d = &nvme_drives[idx];
   d->base_mmio = mmio_base;
   str_trim(d->serial,   idbuf + 4,  20);
   str_trim(d->model,    idbuf + 24, 40);
@@ -187,34 +203,34 @@ void nvme_probe(uint64_t mmio_base, volatile uint32_t *pci_regs) {
          d->model, d->serial, d->firmware);
 
   // ---- Create I/O Completion Queue (QID=1) ----
-  memset(iocq_buf, 0, sizeof(iocq_buf));
-  ioq.cq     = iocq_buf;
+  memset(mem->iocq, 0, sizeof(mem->iocq));
+  ioq->cq     = mem->iocq;
   // I/O CQ 1 Head doorbell: base + 0x1000 + 3*stride
-  ioq.cq_db  = (volatile uint32_t *)(db + 3 * stride);
-  ioq.cq_head = 0;
-  ioq.phase   = 1;
+  ioq->cq_db  = (volatile uint32_t *)(db + 3 * stride);
+  ioq->cq_head = 0;
+  ioq->phase   = 1;
 
   // CDW10: QID=1 | (QSIZE-1)<<16
   // CDW11: PC=1 (physically contiguous), IEN=0 (polling, no MSI needed)
-  if (nvme_cmd(&aq, 0x05, 0, (uint64_t)iocq_buf, 0,
+  if (nvme_cmd(aq, 0x05, 0, (uint64_t)mem->iocq, 0,
                1U | ((qdepth - 1) << 16), 1U, 0) != 0) return;
 
   // ---- Create I/O Submission Queue (QID=1, CQID=1) ----
-  memset(iosq_buf, 0, sizeof(iosq_buf));
-  ioq.sq     = iosq_buf;
+  memset(mem->iosq, 0, sizeof(mem->iosq));
+  ioq->sq     = mem->iosq;
   // I/O SQ 1 Tail doorbell: base + 0x1000 + 2*stride
-  ioq.sq_db  = (volatile uint32_t *)(db + 2 * stride);
-  ioq.sq_tail = 0;
-  ioq.cid     = 0;
+  ioq->sq_db  = (volatile uint32_t *)(db + 2 * stride);
+  ioq->sq_tail = 0;
+  ioq->cid     = 0;
 
   // CDW10: QID=1 | (QSIZE-1)<<16
   // CDW11: PC=1 | QPRIO=0 | CQID=1<<16
-  if (nvme_cmd(&aq, 0x01, 0, (uint64_t)iosq_buf, 0,
+  if (nvme_cmd(aq, 0x01, 0, (uint64_t)mem->iosq, 0,
                1U | ((qdepth - 1) << 16), 1U | (1U << 16), 0) != 0) return;
 
   // ---- Identify Namespace 1 (CNS=0x00) ----
   memset(idbuf, 0, sizeof(idbuf));
-  if (nvme_cmd(&aq, 0x06, 1, (uint64_t)idbuf, 0, 0x00, 0, 0) != 0) return;
+  if (nvme_cmd(aq, 0x06, 1, (uint64_t)idbuf, 0, 0x00, 0, 0) != 0) return;
 
   // NSZE at bytes [7:0] — namespace size in logical blocks
   uint64_t nsze = *(uint64_t *)idbuf;
@@ -227,7 +243,6 @@ void nvme_probe(uint64_t mmio_base, volatile uint32_t *pci_regs) {
   d->sector_count = nsze;
   d->sector_size  = blksz;
   d->ready        = 1;
-  int idx = nvme_drive_count;
   nvme_drive_count++;
 
   uint64_t mb = (nsze >> 20) * blksz + ((nsze & 0xFFFFF) * blksz >> 20);
@@ -254,9 +269,9 @@ int nvme_read(int drive, uint64_t lba, uint32_t count, void *buf) {
     return -1;
   }
 
-  // NVMe Read: opcode=0x02
+  // NVMe Read: opcode=0x02 — issue on this drive's own I/O queue.
   // CDW10 = LBA[31:0], CDW11 = LBA[63:32], CDW12 = NLB (0-based count)
-  int r = nvme_cmd(&ioq, 0x02, 1,
+  int r = nvme_cmd(&ioq_q[drive], 0x02, 1,
                    (uint64_t)nvme_rw_buf, 0,
                    (uint32_t)lba, (uint32_t)(lba >> 32), count - 1);
   if (r == 0) memcpy(buf, (void *)nvme_rw_buf, nb);
@@ -281,8 +296,8 @@ int nvme_write(int drive, uint64_t lba, uint32_t count, const void *buf) {
   // write so the controller reads from a known identity-mapped address.
   memcpy((void *)nvme_rw_buf, buf, nb);
 
-  // NVMe Write: opcode=0x01 (same CDW layout as Read)
-  return nvme_cmd(&ioq, 0x01, 1,
+  // NVMe Write: opcode=0x01 (same CDW layout as Read), on this drive's queue.
+  return nvme_cmd(&ioq_q[drive], 0x01, 1,
                   (uint64_t)nvme_rw_buf, 0,
                   (uint32_t)lba, (uint32_t)(lba >> 32), count - 1);
 }
