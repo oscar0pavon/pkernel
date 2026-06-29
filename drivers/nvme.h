@@ -99,4 +99,8 @@ void nvme_probe(uint64_t mmio_base, volatile uint32_t *pci_regs);
 // Returns 0 on success, -1 on error. count * sector_size must be <= 4096.
 int nvme_read(int drive, uint64_t lba, uint32_t count, void *buf);
 
+// Write `count` sectors starting at `lba` from `buf`.
+// Returns 0 on success, -1 on error. count * sector_size must be <= 4096.
+int nvme_write(int drive, uint64_t lba, uint32_t count, const void *buf);
+
 #endif

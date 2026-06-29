@@ -22,8 +22,61 @@ static int str_eq(const char *a, const char *b) {
     return *a == *b;
 }
 
+// If `line` begins with `prefix`, return a pointer to the first non-space
+// character after it (the argument); otherwise return NULL.
+static const char *arg_after(const char *line, const char *prefix) {
+    while (*prefix) if (*line++ != *prefix++) return 0;
+    while (*line == ' ') line++;
+    return line;
+}
+
 static void cmd_help(void) {
     printf("commands: help  clear  mem  uptime  tasks  lspci  nvme  lsblk  reboot  poweroff\n");
+    printf("          wtest <dev>   (non-destructive block write self-test)\n");
+}
+
+// Non-destructive write verification for a named block device.
+//   1. read the original sector and keep it
+//   2. write a known pattern, read it back, compare
+//   3. write the original sector back to restore it
+// The sector is restored either way, so no data is lost on success. It still
+// WRITES to the device, so it must be invoked with an explicit device name and
+// never runs by accident. On bare metal nvme0/nvme1 are REAL disks.
+static void cmd_wtest(const char *dev_name) {
+    if (!dev_name || dev_name[0] == '\0') {
+        printf("usage: wtest <dev>   e.g. wtest nvme0\n");
+        return;
+    }
+    BlockDevice *bd = block_get(dev_name);
+    if (!bd)        { printf("wtest: no such block device '%s'\n", dev_name); return; }
+    if (!bd->write) { printf("wtest: %s is read-only\n", bd->name); return; }
+    if (bd->sector_size > 4096) { printf("wtest: sector too large\n"); return; }
+
+    // Scratch LBA in the alignment gap between the GPT partition entry array
+    // (ends at LBA 33) and the first partition (LBA 2048 on a 1 MiB-aligned
+    // disk). This sector is normally unused, so even though the test restores
+    // it afterwards, a worst-case interruption is least likely to lose data.
+    uint64_t lba = 2047;
+    if (lba >= bd->sector_count) lba = bd->sector_count - 1;
+    uint32_t sz  = bd->sector_size;
+    static uint8_t orig[4096], patt[4096], back[4096];
+
+    printf("wtest: %s LBA %lu (writes + restores 1 sector)...\n", bd->name, lba);
+
+    if (block_read(bd, lba, 1, orig) != 0) { printf("wtest: initial read failed\n"); return; }
+    for (uint32_t i = 0; i < sz; i++) patt[i] = (uint8_t)((i * 7 + 0x5A) & 0xFF);
+
+    if (block_write(bd, lba, 1, patt) != 0) { printf("wtest: write failed\n"); return; }
+    if (block_read(bd, lba, 1, back) != 0)  { printf("wtest: readback failed\n"); return; }
+
+    int ok = 1;
+    for (uint32_t i = 0; i < sz; i++) if (back[i] != patt[i]) { ok = 0; break; }
+
+    if (block_write(bd, lba, 1, orig) != 0)
+        printf("wtest: WARNING — restore write failed, LBA %lu may be altered!\n", lba);
+
+    printf("wtest: %s\n", ok ? "PASS (write/readback matched, sector restored)"
+                             : "FAIL (readback did not match)");
 }
 
 static void cmd_lsblk(void) {
@@ -161,6 +214,7 @@ static void dispatch(void) {
     else if (str_eq(line, "lspci"))  cmd_lspci();
     else if (str_eq(line, "nvme"))   cmd_nvme();
     else if (str_eq(line, "lsblk"))  cmd_lsblk();
+    else if (arg_after(line, "wtest")) cmd_wtest(arg_after(line, "wtest"));
     else if (str_eq(line, "poweroff")) cmd_poweroff();
     else if (str_eq(line, "reboot")) cmd_reboot();
     else    printf("unknown: %s\n", line);

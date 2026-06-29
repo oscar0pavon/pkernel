@@ -91,6 +91,11 @@ static int nvme_block_read(BlockDevice *dev, uint64_t lba, uint32_t count,
   return nvme_read((int)dev->unit, lba, count, buf);
 }
 
+static int nvme_block_write(BlockDevice *dev, uint64_t lba, uint32_t count,
+                            const void *buf) {
+  return nvme_write((int)dev->unit, lba, count, buf);
+}
+
 // ============================================================================
 // nvme_probe — called from pci.c for each NVMe PCI function found.
 // Initialises the controller, sets up admin + I/O queues, identifies the
@@ -228,11 +233,11 @@ void nvme_probe(uint64_t mmio_base, volatile uint32_t *pci_regs) {
   uint64_t mb = (nsze >> 20) * blksz + ((nsze & 0xFFFFF) * blksz >> 20);
   printf("nvme%d: %lu sectors x %u bytes = %lu MB\n", idx, nsze, blksz, mb);
 
-  // Expose this namespace through the generic block layer. Read-only for now
-  // (write == NULL) until nvme_write lands. NVME_MAX_DRIVES <= 9, so a single
-  // digit suffix is sufficient.
+  // Expose this namespace through the generic block layer. NVME_MAX_DRIVES <= 9,
+  // so a single digit suffix is sufficient.
   char name[6] = {'n', 'v', 'm', 'e', (char)('0' + idx), '\0'};
-  block_register(name, blksz, nsze, (uint32_t)idx, NULL, nvme_block_read, NULL);
+  block_register(name, blksz, nsze, (uint32_t)idx, NULL,
+                 nvme_block_read, nvme_block_write);
 }
 
 // ============================================================================
@@ -256,4 +261,28 @@ int nvme_read(int drive, uint64_t lba, uint32_t count, void *buf) {
                    (uint32_t)lba, (uint32_t)(lba >> 32), count - 1);
   if (r == 0) memcpy(buf, (void *)nvme_rw_buf, nb);
   return r;
+}
+
+// ============================================================================
+// Write `count` contiguous logical blocks starting at `lba` from `buf`.
+// count * sector_size must fit within the 4 KB bounce buffer.
+// ============================================================================
+int nvme_write(int drive, uint64_t lba, uint32_t count, const void *buf) {
+  if (drive < 0 || drive >= nvme_drive_count || !nvme_drives[drive].ready)
+    return -1;
+
+  uint32_t nb = count * nvme_drives[drive].sector_size;
+  if (nb > sizeof(nvme_rw_buf)) {
+    printf("nvme_write: request too large (%u bytes)\n", nb);
+    return -1;
+  }
+
+  // Stage the caller's data in the DMA-capable bounce buffer, then issue the
+  // write so the controller reads from a known identity-mapped address.
+  memcpy((void *)nvme_rw_buf, buf, nb);
+
+  // NVMe Write: opcode=0x01 (same CDW layout as Read)
+  return nvme_cmd(&ioq, 0x01, 1,
+                  (uint64_t)nvme_rw_buf, 0,
+                  (uint32_t)lba, (uint32_t)(lba >> 32), count - 1);
 }
