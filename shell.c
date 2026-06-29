@@ -8,6 +8,7 @@
 #include "drivers/pci.h"
 #include "drivers/nvme.h"
 #include "block.h"
+#include "gpt.h"
 #include "acpi.h"
 #include "input_output.h"
 
@@ -31,7 +32,7 @@ static const char *arg_after(const char *line, const char *prefix) {
 }
 
 static void cmd_help(void) {
-    printf("commands: help  clear  mem  uptime  tasks  lspci  nvme  lsblk  reboot  poweroff\n");
+    printf("commands: help  clear  mem  uptime  tasks  lspci  nvme  lsblk  parts  reboot  poweroff\n");
     printf("          wtest <dev>   (non-destructive block write self-test)\n");
 }
 
@@ -87,6 +88,28 @@ static void cmd_lsblk(void) {
         printf("%s  %lu MB  (%lu x %u B)  %s\n",
                d->name, mb, d->sector_count, d->sector_size,
                d->write ? "rw" : "ro");
+    }
+}
+
+static void cmd_parts(void) {
+    if (block_device_count == 0) { printf("no block devices\n"); return; }
+    static GptPartition parts[16];
+    for (int i = 0; i < block_device_count; i++) {
+        BlockDevice *d = &block_devices[i];
+        int n = gpt_scan(d, parts, 16);
+        if (n < 0) { printf("%s: no GPT\n", d->name); continue; }
+        printf("%s: %d partition(s)\n", d->name, n);
+        for (int j = 0; j < n; j++) {
+            GptPartition *p = &parts[j];
+            uint64_t sectors = p->last_lba - p->first_lba + 1;
+            uint64_t mb = (sectors / 1024) * d->sector_size / 1024;
+            const char *type = gpt_type_name(p->type_guid);
+            char guidbuf[37];
+            if (!type) { gpt_guid_str(p->type_guid, guidbuf); type = guidbuf; }
+            printf("  %sp%d  LBA %lu..%lu  %lu MB  %s  '%s'\n",
+                   d->name, p->index + 1, p->first_lba, p->last_lba,
+                   mb, type, p->name);
+        }
     }
 }
 
@@ -214,6 +237,7 @@ static void dispatch(void) {
     else if (str_eq(line, "lspci"))  cmd_lspci();
     else if (str_eq(line, "nvme"))   cmd_nvme();
     else if (str_eq(line, "lsblk"))  cmd_lsblk();
+    else if (str_eq(line, "parts"))  cmd_parts();
     else if (arg_after(line, "wtest")) cmd_wtest(arg_after(line, "wtest"));
     else if (str_eq(line, "poweroff")) cmd_poweroff();
     else if (str_eq(line, "reboot")) cmd_reboot();
