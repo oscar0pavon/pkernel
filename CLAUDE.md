@@ -52,8 +52,9 @@ Three layers, each agnostic to the one below:
 1. **`drivers/nvme.c`** — NVMe controller driver. `nvme_probe()` is called from `setup_pci()` for each NVMe PCI function; it sets up admin + I/O queues, identifies the namespace, and fills a `NvmeDrive`. `nvme_read`/`nvme_write` move sectors via a shared 4 KB DMA bounce buffer (`nvme_rw_buf`), so a single transfer is capped at 4096 bytes (`count * sector_size <= 4096`).
 2. **`block.c`** — generic block-device layer. Drivers call `block_register(name, sector_size, sector_count, unit, drv, read, write)` (write may be `NULL` for read-only); higher layers use `block_get("nvme0")` then `block_read`/`block_write`. This is the seam where AHCI or USB mass-storage would plug in later.
 3. **`gpt.c`** — GUID Partition Table parsing on top of any `BlockDevice`. `gpt_scan(dev, out, max)` returns the used partitions; `gpt_type_name`/`gpt_guid_str` are for display.
+4. **`fat32.c`** — read-only FAT32 filesystem over a `BlockDevice` partition (8.3 short names; LFN entries skipped; 512-byte sectors assumed). `fat32_mount(dev, part_lba, vol)` parses the BPB; `fat32_stat` resolves a path; `fat32_list` iterates a directory; `fat32_read` reads a file by following the FAT chain. All cluster arithmetic is partition-relative, so it is agnostic to where the volume sits on disk.
 
-The shell exercises all three: `lsblk` (registered devices), `nvme` (controller/namespace info), `parts` (GPT scan), `ro`/`rw`/`wtest` (read/write tests).
+The shell exercises all four: `lsblk` (registered devices), `nvme` (controller/namespace info), `parts` (GPT scan), `ro`/`rw`/`wtest` (read/write tests), and `ls`/`cat` (FAT32 — `fat_get()` in `shell.c` auto-mounts the first FAT32 volume by scanning each device's GPT partitions, falling back to a bare FAT32 at LBA 0).
 
 ### Module map
 
@@ -77,7 +78,8 @@ The shell exercises all three: `lsblk` (registered devices), `nvme` (controller/
 | `memory.c/h` | UEFI memory map parsing; physical page allocator + `kmalloc`/`kfree` heap |
 | `block.c/h` | Generic `BlockDevice` registry/dispatch layer between drivers and partition/FS code |
 | `gpt.c/h` | GUID Partition Table parsing over any `BlockDevice` |
-| `shell.c/h` | Interactive shell task (`help`/`clear`/`mem`/`uptime`/`tasks`/`lspci`/`lsblk`/`nvme`/`parts`/`ro`/`rw`/`wtest`/`poweroff`/`reboot`/`cli`/`sti`/`hlt`) |
+| `fat32.c/h` | Read-only FAT32 filesystem (8.3 names) over a `BlockDevice` partition |
+| `shell.c/h` | Interactive shell task (`help`/`clear`/`mem`/`uptime`/`tasks`/`lspci`/`lsblk`/`nvme`/`parts`/`ls`/`cat`/`ro`/`rw`/`wtest`/`poweroff`/`reboot`/`cli`/`sti`/`hlt`) |
 | `input_output.s/h` | `input(port)` / `output_byte(val, port)` port I/O wrappers |
 | `input.c/h` | Keyboard input buffering |
 | `drivers/pci.c/h` | PCI config-space enumeration (I/O port method + PCIe MMIO via MCFG); dispatches NVMe controllers to `nvme_probe` |

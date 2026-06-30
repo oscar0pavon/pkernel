@@ -9,6 +9,7 @@
 #include "drivers/nvme.h"
 #include "block.h"
 #include "gpt.h"
+#include "fat32.h"
 #include "acpi.h"
 #include "input_output.h"
 
@@ -33,6 +34,7 @@ static const char *arg_after(const char *line, const char *prefix) {
 
 static void cmd_help(void) {
     printf("commands: help  clear  mem  uptime  tasks  lspci  nvme  lsblk  parts  reboot  poweroff\n");
+    printf("          ls [path]  cat <path>   (read-only FAT32)\n");
     printf("          wtest <dev>   (non-destructive block write self-test)\n");
 }
 
@@ -113,6 +115,66 @@ static void cmd_parts(void) {
     }
 }
 
+
+// Find and mount the first FAT32 volume across all block devices: for each
+// device, try every GPT partition; if the device has no GPT, try a bare FAT32
+// at LBA 0. Returns 0 and fills `vol` on success, -1 if none is found.
+static int fat_get(Fat32Volume *vol) {
+    static GptPartition parts[16];
+    for (int i = 0; i < block_device_count; i++) {
+        BlockDevice *d = &block_devices[i];
+        int n = gpt_scan(d, parts, 16);
+        if (n > 0) {
+            for (int j = 0; j < n; j++)
+                if (fat32_mount(d, parts[j].first_lba, vol) == 0) return 0;
+        } else if (fat32_mount(d, 0, vol) == 0) {
+            return 0;
+        }
+    }
+    return -1;
+}
+
+static int ls_cb(const Fat32DirEntry *e, void *ctx) {
+    (void)ctx;
+    if (e->attr & FAT_ATTR_DIRECTORY) printf("  %-12s  <dir>\n", e->name);
+    else                              printf("  %-12s  %u bytes\n", e->name, e->size);
+    return 0;
+}
+
+static void cmd_ls(const char *path) {
+    Fat32Volume vol;
+    if (fat_get(&vol) != 0) { printf("ls: no FAT32 volume found\n"); return; }
+    if (!path || path[0] == '\0') path = "/";
+
+    Fat32DirEntry e;
+    if (fat32_stat(&vol, path, &e) != 0) { printf("ls: %s: not found\n", path); return; }
+    if (!(e.attr & FAT_ATTR_DIRECTORY)) {       // a plain file: list just it
+        printf("  %-12s  %u bytes\n", e.name, e.size);
+        return;
+    }
+    fat32_list(&vol, e.first_cluster, ls_cb, 0);
+}
+
+static void cmd_cat(const char *path) {
+    if (!path || path[0] == '\0') { printf("usage: cat <path>\n"); return; }
+    Fat32Volume vol;
+    if (fat_get(&vol) != 0) { printf("cat: no FAT32 volume found\n"); return; }
+
+    Fat32DirEntry e;
+    if (fat32_stat(&vol, path, &e) != 0)   { printf("cat: %s: not found\n", path); return; }
+    if (e.attr & FAT_ATTR_DIRECTORY)       { printf("cat: %s: is a directory\n", path); return; }
+
+    static uint8_t buf[4096];
+    uint32_t max = e.size < sizeof(buf) ? e.size : sizeof(buf);
+    int n = fat32_read(&vol, e.first_cluster, e.size, buf, max);
+    if (n < 0) { printf("cat: read error\n"); return; }
+
+    for (int i = 0; i < n; i++) {
+        char s[2] = { (char)buf[i], '\0' };
+        printf("%s", s);
+    }
+    if (e.size > sizeof(buf)) printf("\n[truncated at %u bytes]\n", (uint32_t)sizeof(buf));
+}
 
 static void cmd_poweroff(void) {
     asm volatile("cli");
@@ -238,6 +300,8 @@ static void dispatch(void) {
     else if (str_eq(line, "nvme"))   cmd_nvme();
     else if (str_eq(line, "lsblk"))  cmd_lsblk();
     else if (str_eq(line, "parts"))  cmd_parts();
+    else if (arg_after(line, "ls"))  cmd_ls(arg_after(line, "ls"));
+    else if (arg_after(line, "cat")) cmd_cat(arg_after(line, "cat"));
     else if (arg_after(line, "wtest")) cmd_wtest(arg_after(line, "wtest"));
     else if (str_eq(line, "poweroff")) cmd_poweroff();
     else if (str_eq(line, "reboot")) cmd_reboot();
