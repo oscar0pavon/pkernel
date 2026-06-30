@@ -1,9 +1,9 @@
 format ELF64
 
 section '.text' executable
-  public load_gdt_asm
+  public load_gdt
 
-load_gdt_asm:
+load_gdt:
     ; RDI holds the address of our 'gdt_ptr' struct (System V ABI convention)
     lgdt [rdi]
 
