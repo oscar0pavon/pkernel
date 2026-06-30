@@ -55,8 +55,6 @@ void c_exception_handler(uint64_t vector, uint64_t error_code, uint64_t rip) {
 }
 
 void init_idt(void) {
-  for (int i = 0; i < 256; i++)
-    kernel_idt[i] = (struct IdtEntry){0, 0, 0, 0, 0, 0, 0};
 
   // CPU exceptions
   set_idt_gate(0,  (uint64_t)exception_handler_0);
@@ -70,4 +68,6 @@ void init_idt(void) {
   idt_ptr.Base  = (uint64_t)&kernel_idt;
 
   load_idt_asm((uint64_t)&idt_ptr);
+
+  printf("IDT configured\n");
 }
