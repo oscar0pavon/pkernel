@@ -243,16 +243,19 @@ void printf(const char* format, ...) {
             format++; // Move past '%'
 
             // Conversion flags / width, parsed in printf-order:
+            //   '-'  left-justify within the field (pad on the right)
             //   '#'  alternate form -> emit a "0x" prefix for hex
             //   '0'  pad to `width` with leading zeros instead of spaces
-            //   N    minimum field width (e.g. %08x, %016lx, %2x)
+            //   N    minimum field width (e.g. %08x, %016lx, %2x, %-12s)
             int alt      = 0;   // '#'
             int zero_pad = 0;   // '0'
+            int left     = 0;   // '-'
             int width    = 0;
 
-            while (*format == '#' || *format == '0') {
-                if (*format == '#') alt = 1;
-                else                zero_pad = 1;
+            while (*format == '#' || *format == '0' || *format == '-') {
+                if      (*format == '#') alt = 1;
+                else if (*format == '-') left = 1;
+                else                     zero_pad = 1;
                 format++;
             }
             while (*format >= '0' && *format <= '9') {
@@ -280,7 +283,13 @@ void printf(const char* format, ...) {
             }
             else if (*format == 's') {
                 char *string = va_arg(arguments, char *);
-                // FIX RECURSION BUG: Print characters directly instead of calling printf() recursively!
+                // Field width: pad with spaces to `width`. '-' left-justifies
+                // (pad after); otherwise pad before (right-justify).
+                int len = 0;
+                for (char *p = string; *p; p++) len++;
+                int pad = width - len;
+                if (!left) while (pad-- > 0) console_put_char(' ');
+                // Print characters directly (avoid recursive printf()).
                 while (*string) {
                     if (*string == '\n') {
                         console_newline();
@@ -289,6 +298,7 @@ void printf(const char* format, ...) {
                     }
                     string++;
                 }
+                if (left) while (pad-- > 0) console_put_char(' ');
             }
             else if (*format == 'x' || *format == 'X') {
                 int uppercase = (*format == 'X');
@@ -312,14 +322,18 @@ void printf(const char* format, ...) {
                     // 0x first, then zeros, then digits:  0x0000012b1
                     if (alt) { console_put_char('0'); console_put_char(uppercase ? 'X' : 'x'); }
                     while (pad-- > 0) console_put_char('0');
+                    for (int i = 0; i < len; i++) console_put_char(digits[i]);
+                } else if (left) {
+                    // 0x, digits, then trailing spaces:  "0x12b1    "
+                    if (alt) { console_put_char('0'); console_put_char(uppercase ? 'X' : 'x'); }
+                    for (int i = 0; i < len; i++) console_put_char(digits[i]);
+                    while (pad-- > 0) console_put_char(' ');
                 } else {
                     // spaces first, then 0x, then digits:  "    0x12b1"
                     while (pad-- > 0) console_put_char(' ');
                     if (alt) { console_put_char('0'); console_put_char(uppercase ? 'X' : 'x'); }
+                    for (int i = 0; i < len; i++) console_put_char(digits[i]);
                 }
-
-                for (int i = 0; i < len; i++)
-                    console_put_char(digits[i]);
             }
             else if (*format == 'b') {
                 // TODO: print binary
