@@ -3,6 +3,22 @@
 
 #include "types.h"
 
+// IDT entry structure explicitly matching 64-bit hardware specs
+struct IdtEntry {
+  uint16_t OffsetLow;
+  uint16_t Selector;  // GDT Kernel Code offset (0x08)
+  uint8_t Ist;        // Interrupt Stack Table index (0)
+  uint8_t Attributes; // Type flags (0x8E = Present, Ring 0, Interrupt Gate)
+  uint16_t OffsetMiddle;
+  uint32_t OffsetHigh;
+  uint32_t Reserved;
+} __attribute__((packed));
+
+struct IdtPointer {
+  uint16_t Limit;
+  uint64_t Base;
+} __attribute__((packed));
+
 // External assembly stubs
 extern void exception_handler_0(void);
 extern void exception_handler_13(void);
