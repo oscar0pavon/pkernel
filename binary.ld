@@ -6,7 +6,7 @@ SECTIONS {
   . = 0x4000000;
 
   .text : ALIGN(4096) {
-    start.o(.text)
+    start_asm.o(.text)
     *(.text*) 
   }
 

@@ -4,7 +4,7 @@ SRCS := $(wildcard *.c)
 OBJS := $(SRCS:c=o)
 
 assembly_source := $(wildcard *.s)
-assembly_objects := $(assembly_source:%.s=%.o)
+assembly_objects := $(assembly_source:%.s=%_asm.o)
 
 
 all: pkernel
@@ -13,7 +13,7 @@ all: pkernel
 	@echo "Compiling $@"
 	$(CC) $(CFLAGS) -c $<
 
-%.o : %.s
+%_asm.o : %.s
 	@echo "Assembling $@"
 	$(ASSEMBLER) $< $@
 
