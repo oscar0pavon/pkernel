@@ -27,6 +27,22 @@ aligned4k static uint64_t kernel_pd3[512]; // Maps 3GB - 4GB
 #define PAGE_2MB 0x200000ULL
 #define PAGE_ADDR_MASK ~0xFFFULL
 
+// On a 2 MB page the PAT-select bit is bit 12 (bit 7 is the huge-page bit).
+// With PCD=PWT=0 this selects PAT slot 4, which we program to write-combining.
+#define PAGE_PAT_2MB (1ULL << 12)
+
+#define IA32_PAT 0x277  // MSR holding the 8 Page Attribute Table entries
+
+// Reprogram PAT slot 4 to Write-Combining (type 0x01). Default slot 4 is WB.
+// WC selected via PAT takes precedence over the firmware MTRRs, so a framebuffer
+// page tagged with PAGE_PAT_2MB becomes WC regardless of how UEFI set the MTRRs.
+static void setup_pat_wc(void) {
+  uint64_t pat = read_msr(IA32_PAT);
+  pat &= ~(0xFFULL << 32);  // clear slot 4 (bits 39:32)
+  pat |= (0x01ULL << 32);   // slot 4 = WC
+  write_msr(IA32_PAT, pat);
+}
+
 // Return (or allocate) the PDPT for a given PML4 slot.
 // PML4[0] is pre-wired to kernel_pdpt in init_paging; other slots are
 // allocated on demand so BARs above 512 GB (e.g. at 0x380000000000 with
@@ -65,7 +81,8 @@ static uint64_t *paging_get_pd(uint64_t pml4_index, uint64_t pdpt_index) {
 
 // Identity-map [phys, phys+size) using 2 MB huge pages. Safe to call over a
 // region that is already partly mapped; it just rewrites those entries.
-static void identity_map_region(uint64_t phys, uint64_t size) {
+static void identity_map_region(uint64_t phys, uint64_t size,
+                                uint64_t extra_flags) {
   uint64_t start = phys & ~(PAGE_2MB - 1);
   uint64_t end = (phys + size + PAGE_2MB - 1) & ~(PAGE_2MB - 1);
 
@@ -75,7 +92,7 @@ static void identity_map_region(uint64_t phys, uint64_t size) {
     uint64_t pd_index = (addr >> 21) & 0x1FF;
 
     uint64_t *pd = paging_get_pd(pml4_index, pdpt_index);
-    pd[pd_index] = addr | PAGE_PRESENT | PAGE_READWRITE | PAGE_HUGE;
+    pd[pd_index] = addr | PAGE_PRESENT | PAGE_READWRITE | PAGE_HUGE | extra_flags;
   }
 }
 
@@ -85,11 +102,14 @@ static void identity_map_region(uint64_t phys, uint64_t size) {
 // commonly hundreds of GB up), so the driver must map its own window before
 // touching it. Reloads CR3 to drop any cached not-present paging entries.
 void paging_map_mmio(uint64_t phys, uint64_t size) {
-  identity_map_region(phys, size);
+  identity_map_region(phys, size, 0);
   flush_tlb();  // drop stale not-present TLB entries for the region just mapped
 }
 
 void init_paging(void) {
+
+  // Program PAT slot 4 to write-combining before any entry references it.
+  setup_pat_wc();
 
   // Link PML4 Entry 0 to our Page Descriptor Pointer Table (PDPT)
   kernel_pml4[0] = (uint64_t)kernel_pdpt | PAGE_PRESENT | PAGE_READWRITE;
@@ -129,11 +149,14 @@ void init_paging(void) {
   // windows mapped above, so the first printf after the CR3 load would fault
   // and triple-fault the machine. QEMU keeps it low, which is why this only
   // breaks on metal. Map its actual physical range explicitly.
+  // Map the framebuffer write-combining (PAT slot 4) so pixel writes burst to
+  // VRAM instead of crawling as uncached single-dword bus transactions. This
+  // also re-tags the low-4 GB huge pages that already cover it on QEMU.
   uint64_t fb_base = frame_buffer.vram;
   uint64_t fb_size = (uint64_t)frame_buffer.pixel_per_scan_line *
                      frame_buffer.vertical_resolution * 4;
   if (fb_base && fb_size)
-    identity_map_region(fb_base, fb_size);
+    identity_map_region(fb_base, fb_size, PAGE_PAT_2MB);
 
   // 5. Load your new unrestricted page tables directly into the CPU!
   // Writing to CR3 forces the processor to instantly ditch UEFI's zombie maps.

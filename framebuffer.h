@@ -20,6 +20,10 @@ void draw_character(unsigned char character, int x, int y,
 
 void plot_pixel(int x, int y, uint32_t pixel);
 
+// Fill `count` 32-bit pixels at dest with `value` using non-temporal stores
+// (implemented in framebuffer_asm.s).
+extern void fb_fill_dwords(void *dest, uint32_t value, uint64_t count);
+
 void clear();
 
 FrameBuffer* get_framebuffer();

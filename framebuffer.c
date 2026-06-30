@@ -26,31 +26,12 @@ void plot_pixel(int x, int y, uint32_t pixel){
 
 void clear(){
   FrameBuffer* framebuffer = get_framebuffer();
-	u32 width = framebuffer->horizontal_resolution;
-	u32 height = framebuffer->vertical_resolution;
-
-	for(int x = 0; x < width; x++){
-		for(int y = 0; y < height; y++){
-			plot_pixel(x, y, get_background_color());
-		}
-	}
-
-	// u32 color = get_background_color();
-	// byte r = color>>24;	
-	// byte g = color>>16;	
-	// byte b = color>>8;	
-	//
-	// byte *where = &framebuffer->vram;
-	// int i,j;
-	// for (i = 0; i < width; i++) {
- //        for (j = 0; j < height; j++) {
- //            //putpixel(vram, 64 + j, 64 + i, (r << 16) + (g << 8) + b);
- //            where[j*PIXEL_FORMAT] = r;
- //            where[j*PIXEL_FORMAT+ 1] = g;
- //            where[j*PIXEL_FORMAT+ 2] = b;
- //        }
- //        where+=PIXEL_FORMAT;
- //    }
+	// One linear non-temporal fill across the whole scan-line stride. Filling the
+	// per-line padding (pixel_per_scan_line >= horizontal_resolution) is harmless
+	// and keeps the write contiguous for the write-combine buffers.
+	uint64_t count = (uint64_t)framebuffer->pixel_per_scan_line *
+			 framebuffer->vertical_resolution;
+	fb_fill_dwords((void *)framebuffer->vram, get_background_color(), count);
 }
 
 void draw_character(unsigned char character, int x, int y,
