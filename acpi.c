@@ -38,7 +38,10 @@ void acpi_get_poweroff(){
   // Scan DSDT AML for "_S5_" and decode SLP_TYPa from its Package value.
   // QEMU typically encodes it as ZeroOp (0x00); real hardware may use ByteConst.
   uint8_t slp_typa = 0;
-  if (DSDT && DSDT->header.length > 36) {
+  // Validate the DSDT signature before trusting header.length: a stale/garbage
+  // DSDT pointer would otherwise drive this scan across hundreds of MB.
+  if (DSDT && acpi_compare_signature(DSDT->header.signature, "DSDT") &&
+      DSDT->header.length > 36) {
       uint8_t *p   = (uint8_t *)DSDT;
       uint8_t *end = p + DSDT->header.length - 9;
       for (; p < end; p++) {
@@ -70,13 +73,10 @@ void parse_fadt() {
       //        sizeof(struct FADT_t));
     }
 
-    ACPISystemDescriptorTableHeader *header =
-        (ACPISystemDescriptorTableHeader *)(FADT->X_Dsdt);
-
-    header = (ACPISystemDescriptorTableHeader *)&FADT->X_Dsdt;
-
-    DSDT = (struct DSDT_t *)FADT->X_Dsdt;
-    // print(DSDT->header.signature);
+    // Prefer the 64-bit X_Dsdt (ACPI 2.0+), but fall back to the legacy 32-bit
+    // Dsdt field when firmware leaves X_Dsdt zeroed.
+    uint64_t dsdt_addr = FADT->X_Dsdt ? FADT->X_Dsdt : (uint64_t)FADT->Dsdt;
+    DSDT = (struct DSDT_t *)dsdt_addr;
   }
 }
 
@@ -122,7 +122,9 @@ void parse_xsdt() {
 void setup_acpi(uint64_t xsdt_address){
 	XSDT = (struct XSDT_t*)xsdt_address;
 	parse_xsdt();
+  printf("xsdt parsed\n");
 
   acpi_get_poweroff();
+  printf("poweroff parsed\n");
   
 }
