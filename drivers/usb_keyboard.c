@@ -1,12 +1,12 @@
 #include "usb_keyboard.h"
+#include "../input.h"
+#include "../lapic.h"
+#include "../sched.h"
 #include "usb.h"
 #include "xhci.h"
-#include "../lapic.h"
-#include "../input.h"
-#include "../sched.h"
 
 // Saved by usb_kbd_attach(), consumed by usb_kbd_isr()
-static uint32_t kbd_slot_id  = 0;
+static uint32_t kbd_slot_id = 0;
 static uint32_t kbd_db_target = 0;
 
 // USB HID Usage Page 0x07 keycode → ASCII (indices 0x00–0x38)
@@ -31,15 +31,21 @@ static uint8_t kbd_prev_kc[6] = {0};
 // Decode one 8-byte HID Boot Protocol report and enqueue changed keys.
 static void xhci_process_key_report(void) {
   uint8_t modifier = kbd_report[0];
-  uint8_t shifted  = (modifier & 0x22) ? 1 : 0;  // bit1=LShift, bit5=RShift
+  uint8_t shifted = (modifier & 0x22) ? 1 : 0; // bit1=LShift, bit5=RShift
 
   for (int i = 2; i < 8; i++) {
     uint8_t kc = kbd_report[i];
-    if (kc == 0) continue;
+    if (kc == 0)
+      continue;
 
     int held = 0;
-    for (int j = 0; j < 6; j++) if (kbd_prev_kc[j] == kc) { held = 1; break; }
-    if (held) continue;
+    for (int j = 0; j < 6; j++)
+      if (kbd_prev_kc[j] == kc) {
+        held = 1;
+        break;
+      }
+    if (held)
+      continue;
 
     if (kc < 57) {
       char c = kbd_ascii[shifted][kc];
@@ -48,7 +54,8 @@ static void xhci_process_key_report(void) {
     }
   }
 
-  for (int i = 0; i < 6; i++) kbd_prev_kc[i] = kbd_report[i + 2];
+  for (int i = 0; i < 6; i++)
+    kbd_prev_kc[i] = kbd_report[i + 2];
 }
 // Queue one Normal TRB on EP1 IN and ring the doorbell.
 // Called once from usb_kbd_attach() to prime the pipeline, then again
@@ -58,13 +65,14 @@ static void xhci_queue_kbd_trb(void) {
   // captured intact (requesting fewer bytes than it sends would babble), capped
   // to the report buffer.
   uint16_t report_sz = ep1_in_mps ? ep1_in_mps : 8;
-  if (report_sz > sizeof(kbd_report)) report_sz = sizeof(kbd_report);
+  if (report_sz > sizeof(kbd_report))
+    report_sz = sizeof(kbd_report);
 
   volatile struct XhciTRB *trb = &ep1in_ring[ep1in_enqueue];
   trb->Parameter = (uint64_t)kbd_report;
-  trb->Status    = report_sz;
+  trb->Status = report_sz;
   // IOC=1 (interrupt on completion), ISP=1 (interrupt on short packet)
-  trb->Control   = (TRB_TYPE_NORMAL << 10) | (1U << 5) | (1U << 2) | ep1in_cycle;
+  trb->Control = (TRB_TYPE_NORMAL << 10) | (1U << 5) | (1U << 2) | ep1in_cycle;
 
   ep1in_enqueue++;
   if (ep1in_enqueue >= 255) {
@@ -93,10 +101,11 @@ static void usb_kbd_service(void) {
   // Drain all pending events from the event ring
   while (1) {
     volatile struct XhciEventTRB *ev = &event_ring[event_ring_dequeue];
-    if ((ev->Control & 1) != event_ring_cycle) break;
+    if ((ev->Control & 1) != event_ring_cycle)
+      break;
 
-    uint32_t trb_type        = (ev->Control >> 10) & 0x3F;
-    uint32_t completion_code = (ev->Status  >> 24) & 0xFF;
+    uint32_t trb_type = (ev->Control >> 10) & 0x3F;
+    uint32_t completion_code = (ev->Status >> 24) & 0xFF;
 
     event_ring_dequeue++;
     if (event_ring_dequeue >= 256) {
@@ -104,7 +113,7 @@ static void usb_kbd_service(void) {
       event_ring_cycle ^= 1;
     }
     xhci_dev.int_0_regs->Erdp =
-      (uint64_t)&event_ring[event_ring_dequeue] | (1U << 3);
+        (uint64_t)&event_ring[event_ring_dequeue] | (1U << 3);
 
     if (trb_type == TRB_TYPE_TRANSFER_EVENT &&
         (completion_code == 1 || completion_code == 13)) {
@@ -123,7 +132,7 @@ static void usb_kbd_service(void) {
 // Runs with interrupts disabled (interrupt gate clears RFLAGS.IF on entry).
 void usb_kbd_isr(void) {
   usb_kbd_service();
-  lapic_eoi();           // acknowledge the interrupt to the LAPIC
+  lapic_eoi(); // acknowledge the interrupt to the LAPIC
 }
 
 // Polling fallback: drain the event ring on a timer instead of relying on MSI.
@@ -137,10 +146,9 @@ static void usb_kbd_poll_task(void) {
     asm volatile("cli");
     usb_kbd_service();
     asm volatile("sti");
-    task_sleep(8);       // ~100 Hz poll; well above the HID report interval
+    task_sleep(8); // ~100 Hz poll; well above the HID report interval
   }
 }
-
 
 // GET_DESCRIPTOR HID Report Descriptor (USB HID spec 7.1.1).
 // bmRequestType=0x81 (D-to-H, Standard, Interface), bRequest=GET_DESCRIPTOR,
@@ -153,16 +161,15 @@ static int usb_kbd_get_report_descriptor(uint32_t slot_id) {
   }
 
   uint16_t req_len = (hid_report_len > 256) ? 256 : hid_report_len;
-  for (uint32_t i = 0; i < 256; i++) descriptor_buffer[i] = 0;
+  for (uint32_t i = 0; i < 256; i++)
+    descriptor_buffer[i] = 0;
 
   // bmRequestType=0x81: D-to-H, Standard, Interface recipient.
   // wIndex (bits 32-47) must be the HID interface number, not a hardcoded 0,
   // or a composite device stalls the request.
-  uint64_t setup = (uint64_t)0x81
-                 | ((uint64_t)USB_REQ_GET_DESCRIPTOR << 8)
-                 | ((uint64_t)USB_DESC_HID_REPORT << 24)
-                 | ((uint64_t)iface_number << 32)
-                 | ((uint64_t)req_len << 48);
+  uint64_t setup = (uint64_t)0x81 | ((uint64_t)USB_REQ_GET_DESCRIPTOR << 8) |
+                   ((uint64_t)USB_DESC_HID_REPORT << 24) |
+                   ((uint64_t)iface_number << 32) | ((uint64_t)req_len << 48);
 
   if (!xhci_control_in(slot_id, setup, descriptor_buffer, req_len)) {
     printf("ERROR: GET_DESCRIPTOR HID Report failed\n");
@@ -189,20 +196,23 @@ static int hid_desc_is_keyboard(void) {
   uint16_t i = 0;
   while (i < len) {
     uint8_t prefix = descriptor_buffer[i];
-    if (prefix == 0xFE) break;          // long item — unsupported, stop
-    uint8_t sz   = prefix & 0x03;
+    if (prefix == 0xFE)
+      break; // long item — unsupported, stop
+    uint8_t sz = prefix & 0x03;
     uint8_t type = (prefix >> 2) & 0x03;
-    uint8_t tag  = (prefix >> 4) & 0x0F;
-    if (sz == 3) sz = 4;                // HID encoding: 3 → 4 data bytes
+    uint8_t tag = (prefix >> 4) & 0x0F;
+    if (sz == 3)
+      sz = 4; // HID encoding: 3 → 4 data bytes
 
     uint32_t val = 0;
     for (uint8_t b = 0; b < sz && i + 1 + b < len; b++)
       val |= (uint32_t)descriptor_buffer[i + 1 + b] << (b * 8);
 
-    if (type == 1 && tag == 0)          // Global: Usage Page
+    if (type == 1 && tag == 0) // Global: Usage Page
       usage_page = (uint8_t)val;
-    else if (type == 2 && tag == 0)     // Local: Usage
-      if (usage_page == 0x01 && val == 0x06) return 1;
+    else if (type == 2 && tag == 0) // Local: Usage
+      if (usage_page == 0x01 && val == 0x06)
+        return 1;
 
     i += 1 + sz;
   }
@@ -219,10 +229,9 @@ static int hid_desc_is_keyboard(void) {
 static void usb_kbd_set_boot_protocol(uint32_t slot_id) {
   // bmRequestType=0x21 (H-to-D, Class, Interface), bRequest=SET_PROTOCOL,
   // wValue=0 (Boot), wIndex=interface, wLength=0.
-  uint64_t setup = (uint64_t)0x21
-                 | ((uint64_t)USB_HID_REQ_SET_PROTOCOL << 8)
-                 | ((uint64_t)USB_HID_PROTOCOL_BOOT << 16)
-                 | ((uint64_t)iface_number << 32);
+  uint64_t setup = (uint64_t)0x21 | ((uint64_t)USB_HID_REQ_SET_PROTOCOL << 8) |
+                   ((uint64_t)USB_HID_PROTOCOL_BOOT << 16) |
+                   ((uint64_t)iface_number << 32);
 
   if (!ep0_control_nodata(slot_id, setup))
     printf("WARNING: SET_PROTOCOL(boot) failed; reports may not be 8-byte\n");
@@ -251,7 +260,7 @@ int usb_kbd_attach(uint32_t slot_id) {
     return 0;
   }
 
-  kbd_slot_id   = slot_id;
+  kbd_slot_id = slot_id;
   kbd_db_target = (uint32_t)ep1_in_number * 2 + 1;
 
   xhci_queue_kbd_trb();
