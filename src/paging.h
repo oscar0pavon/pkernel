@@ -8,6 +8,10 @@ void init_paging(void);
 // Identity-map an MMIO region (PCI BAR) found at runtime, after CR3 is loaded.
 void paging_map_mmio(uint64_t phys, uint64_t size);
 
+// Map one 4 KB physical page at `va`, reachable from ring 3 (PAGE_USER at every
+// level). Used to place user-mode code/stack in a dedicated high-half window.
+void paging_map_user_page(uint64_t va, uint64_t phys);
+
 // Reload CR3 to flush the TLB (implemented in paging_asm.s).
 extern void flush_tlb(void);
 

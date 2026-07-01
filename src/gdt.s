@@ -2,6 +2,15 @@ format ELF64
 
 section '.text' executable
   public load_gdt
+  public load_tss
+
+; void load_tss(uint16_t selector)
+; RDI holds the GDT selector for the TSS descriptor (0x28). ltr marks the TSS
+; descriptor busy and points the CPU at it, so ring 3 -> ring 0 transitions know
+; which kernel stack (TSS.RSP0) to switch to.
+load_tss:
+    ltr di
+    ret
 
 load_gdt:
     ; RDI holds the address of our 'gdt_ptr' struct (System V ABI convention)

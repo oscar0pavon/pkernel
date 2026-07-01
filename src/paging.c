@@ -22,6 +22,7 @@ aligned4k static uint64_t kernel_pd3[512]; // Maps 3GB - 4GB
 // Page table entry bitmask flags defined by x86-64 hardware architecture
 #define PAGE_PRESENT (1ULL << 0)
 #define PAGE_READWRITE (1ULL << 1)
+#define PAGE_USER (1ULL << 2) // Ring 3 may access this page (and every table above it)
 #define PAGE_HUGE (1ULL << 7) // Tells the CPU to treat this entry as a 2MB page
 
 #define PAGE_2MB 0x200000ULL
@@ -104,6 +105,53 @@ static void identity_map_region(uint64_t phys, uint64_t size,
 void paging_map_mmio(uint64_t phys, uint64_t size) {
   identity_map_region(phys, size, 0);
   flush_tlb();  // drop stale not-present TLB entries for the region just mapped
+}
+
+// Map a single 4 KB physical page at virtual address `va` and make it reachable
+// from ring 3. Unlike the kernel identity map (2 MB huge, supervisor-only), user
+// pages must be 4 KB and carry PAGE_USER at EVERY level of the walk — the CPU
+// AND-s the U bit down the whole PML4→PDPT→PD→PT chain, so one supervisor table
+// anywhere above the page would fault ring-3 access.
+//
+// Intended for a dedicated high-half VA window (PML4 slot 8, 0x40000000000+)
+// that the kernel identity map never touches, so OR-ing PAGE_USER into existing
+// intermediate tables here can never expose kernel memory to user code.
+void paging_map_user_page(uint64_t va, uint64_t phys) {
+  uint64_t i4 = (va >> 39) & 0x1FF;
+  uint64_t i3 = (va >> 30) & 0x1FF;
+  uint64_t i2 = (va >> 21) & 0x1FF;
+  uint64_t i1 = (va >> 12) & 0x1FF;
+  uint64_t flags = PAGE_PRESENT | PAGE_READWRITE | PAGE_USER;
+
+  if (!(kernel_pml4[i4] & PAGE_PRESENT)) {
+    uint64_t *t = (uint64_t *)pmm_alloc_page();
+    for (int i = 0; i < 512; i++) t[i] = 0;
+    kernel_pml4[i4] = (uint64_t)t | flags;
+  } else {
+    kernel_pml4[i4] |= PAGE_USER;
+  }
+  uint64_t *pdpt = (uint64_t *)(kernel_pml4[i4] & PAGE_ADDR_MASK);
+
+  if (!(pdpt[i3] & PAGE_PRESENT)) {
+    uint64_t *t = (uint64_t *)pmm_alloc_page();
+    for (int i = 0; i < 512; i++) t[i] = 0;
+    pdpt[i3] = (uint64_t)t | flags;
+  } else {
+    pdpt[i3] |= PAGE_USER;
+  }
+  uint64_t *pd = (uint64_t *)(pdpt[i3] & PAGE_ADDR_MASK);
+
+  if (!(pd[i2] & PAGE_PRESENT)) {
+    uint64_t *t = (uint64_t *)pmm_alloc_page();
+    for (int i = 0; i < 512; i++) t[i] = 0;
+    pd[i2] = (uint64_t)t | flags;
+  } else {
+    pd[i2] |= PAGE_USER;
+  }
+  uint64_t *pt = (uint64_t *)(pd[i2] & PAGE_ADDR_MASK);
+
+  pt[i1] = (phys & PAGE_ADDR_MASK) | flags;
+  flush_tlb();
 }
 
 void init_paging(void) {

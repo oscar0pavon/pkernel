@@ -8,6 +8,7 @@
 #include "idt.h"
 #include "lapic.h"
 #include "paging.h"
+#include "usermode.h"
 #include "drivers/xhci.h"
 #include "drivers/serial.h"
 #include "lapic_timer.h"
@@ -46,6 +47,8 @@ void main(BootInfo* boot_info){
   pmm_init(boot_info);
 
   init_paging();
+
+  usermode_init();           // TSS + syscall/sysret MSRs for ring 3
 
   init_lapic();
   lapic_timer_init(100);     // calibrate + start periodic timer at 100 Hz

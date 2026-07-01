@@ -25,6 +25,13 @@ typedef struct GdtPointer GdtPointer;
 // This assembly helper
 extern void load_gdt(uint64_t gdt_ptr_address);
 
+// Load the task register with the given GDT selector (implemented in gdt.s).
+extern void load_tss(uint16_t selector);
+
 void init_gdt(void);
+
+// Fill the TSS descriptor (GDT entries 5-6) and run ltr. Called from user mode
+// setup once the TSS base address is known.
+void gdt_install_tss(uint64_t tss_base, uint32_t tss_limit);
 
 #endif

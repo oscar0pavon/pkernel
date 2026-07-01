@@ -12,6 +12,7 @@
 #include "fat32.h"
 #include "acpi.h"
 #include "input_output.h"
+#include "usermode.h"
 
 
 #define LINE_MAX 256
@@ -36,6 +37,7 @@ static void cmd_help(void) {
     printf("commands: help  clear  mem  uptime  tasks  lspci  nvme  lsblk  parts  reboot  poweroff\n");
     printf("          ls [path]  cat <path>   (read-only FAT32)\n");
     printf("          wtest <dev>   (non-destructive block write self-test)\n");
+    printf("          user          (run the demo program in ring 3)\n");
 }
 
 // Non-destructive write verification for a named block device.
@@ -303,6 +305,7 @@ static void dispatch(void) {
     else if (arg_after(line, "ls"))  cmd_ls(arg_after(line, "ls"));
     else if (arg_after(line, "cat")) cmd_cat(arg_after(line, "cat"));
     else if (arg_after(line, "wtest")) cmd_wtest(arg_after(line, "wtest"));
+    else if (str_eq(line, "user"))   run_user_program();
     else if (str_eq(line, "poweroff")) cmd_poweroff();
     else if (str_eq(line, "reboot")) cmd_reboot();
     else    printf("unknown: %s\n", line);
