@@ -13,6 +13,7 @@
 #include "drivers/serial.h"
 #include "lapic_timer.h"
 #include "sched.h"
+#include "smp.h"
 #include "shell.h"
 
 void hang(void) {
@@ -58,7 +59,9 @@ void main(BootInfo* boot_info){
   set_idt_gate(0x20, (uint64_t)irq_sched_handler);
   set_idt_gate(0x21, (uint64_t)irq_xhci_handler);
 
-  
+  smp_init();                // INIT-SIPI-SIPI the other CPUs into ap_main()
+
+
   setup_pci();
   xhci_enable_msi(0x21);     // configure PCI MSI + enable xHCI interrupter
 

@@ -56,6 +56,13 @@ void init_gdt(void) {
   printf("GDT configured\n");
 }
 
+// Load the already-built kernel GDT on the calling CPU. APs come up under the
+// trampoline's throwaway GDT (CS=0x18); this switches them onto the real one
+// (CS=0x08) that the BSP set up in init_gdt().
+void gdt_load_on_ap(void) {
+  load_gdt((uint64_t)&gdt_ptr);
+}
+
 // Write the 64-bit TSS system descriptor into GDT entries 5-6 and load it into
 // the CPU's task register (ltr). Called from usermode_init() once the TSS
 // address is known. The descriptor spans 16 bytes: the low 8 use the normal

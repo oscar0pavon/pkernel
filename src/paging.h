@@ -17,6 +17,9 @@ extern void flush_tlb(void);
 
 extern void update_cr3(uint64_t pml4);
 
+// Read the current CR3 (PML4 physical address). Implemented in paging_asm.s.
+extern uint64_t read_cr3(void);
+
 // MSR access (implemented in paging_asm.s).
 extern uint64_t read_msr(uint32_t msr);
 extern void write_msr(uint32_t msr, uint64_t value);

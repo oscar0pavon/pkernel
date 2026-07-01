@@ -43,6 +43,12 @@ void c_exception_handler(uint64_t vector, uint64_t error_code, uint64_t rip) {
   }
 }
 
+// Load the already-built kernel IDT on the calling CPU. Called by APs so they
+// share the BSP's exception/IRQ vectors instead of running with a null IDT.
+void idt_load_on_ap(void) {
+  load_idt_asm((uint64_t)&idt_ptr);
+}
+
 void init_idt(void) {
 
   // CPU exceptions

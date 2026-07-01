@@ -14,6 +14,12 @@
 
 static uint8_t page_bitmap[BITMAP_BYTES];
 
+// Location of the UEFI memory map captured by the bootloader, kept so callers
+// can query what firmware reported as usable RAM after pmm_init() has run.
+static uint8_t *mmap_base;
+static uint64_t mmap_total;
+static uint64_t mmap_stride;
+
 static inline void _set(uint64_t i) { page_bitmap[i / 8] |=  (1u << (i % 8)); }
 static inline void _clr(uint64_t i) { page_bitmap[i / 8] &= ~(1u << (i % 8)); }
 static inline int  _tst(uint64_t i) { return (page_bitmap[i / 8] >> (i % 8)) & 1; }
@@ -38,6 +44,10 @@ void pmm_init(void *info) {
     uint64_t  count  = total / stride;
     uint64_t  free_bytes = 0;
 
+    mmap_base   = map;    // remember the map for later usability queries
+    mmap_total  = total;
+    mmap_stride = stride;
+
     for (uint64_t i = 0; i < count; i++) {
         struct MemoryDescriptor *d =
             (struct MemoryDescriptor *)(map + i * stride);
@@ -53,6 +63,22 @@ void pmm_init(void *info) {
     mark_range(boot_info->memory_info.buffer_address,  total, 1);
 
     printf("PMM: %d MB free\n", (uint32_t)(free_bytes / 1024 / 1024));
+}
+
+// True if `phys` lies inside a region firmware reported as EfiConventionalMemory
+// (type 7) — i.e. real RAM the kernel may write. Used to confirm the SMP
+// trampoline page is backed by usable memory before we copy into it, rather
+// than trusting a hardcoded low address. Valid only after pmm_init().
+int pmm_phys_usable(uint64_t phys) {
+    for (uint64_t i = 0; i < mmap_total / mmap_stride; i++) {
+        struct MemoryDescriptor *d =
+            (struct MemoryDescriptor *)(mmap_base + i * mmap_stride);
+        if (d->type != 7) continue;  // EfiConventionalMemory
+        uint64_t start = d->physical_start;
+        uint64_t end   = start + d->pages * PAGE_SIZE;
+        if (phys >= start && phys < end) return 1;
+    }
+    return 0;
 }
 
 void *pmm_alloc_page(void) {

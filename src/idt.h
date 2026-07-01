@@ -32,4 +32,7 @@ extern void load_idt_asm(uint64_t idt_ptr_address);
 void set_idt_gate(int vector, uint64_t handler_address);
 void init_idt(void);
 
+// Load the kernel IDT on the calling CPU (used by APs during SMP bring-up).
+void idt_load_on_ap(void);
+
 #endif

@@ -27,6 +27,10 @@ void  pmm_init(void *boot_info);
 void *pmm_alloc_page(void);
 void  pmm_free_page(void *page);
 
+// True if `phys` is inside a region UEFI reported as usable conventional RAM.
+// Consults the memory map captured by the bootloader; valid after pmm_init().
+int   pmm_phys_usable(uint64_t phys);
+
 // Heap allocator
 void *kmalloc(size_t size);
 void  kfree(void *ptr);

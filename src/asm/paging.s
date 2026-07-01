@@ -3,6 +3,7 @@ format ELF64
 section '.text' executable
   public flush_tlb
   public update_cr3
+  public read_cr3
   public read_msr
   public write_msr
 
@@ -17,6 +18,11 @@ flush_tlb:
 
 update_cr3:
   mov cr3, rdi
+  ret
+
+; uint64_t read_cr3(void)  ; returns the current PML4 physical address in rax.
+read_cr3:
+  mov rax, cr3
   ret
 
 ; uint64_t read_msr(uint32_t msr)   ; edi = msr index

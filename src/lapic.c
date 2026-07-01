@@ -20,7 +20,7 @@ void init_lapic(void) {
   // (must be 0xF0–0xFF per the Intel SDM).
   *LAPIC_SVR = (1U << 8) | 0xFF;
 
-  printf("LAPIC enabled (ID=0x%x)\n", *LAPIC_ID >> 24);
+  //printf("LAPIC enabled (ID=0x%x)\n", *LAPIC_ID >> 24);
 }
 
 // Write to EOI register to acknowledge a non-spurious interrupt.
