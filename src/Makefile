@@ -18,13 +18,16 @@ all: pkernel
 	$(ASSEMBLER) $< $@
 
 drivers.a:
-	make -C ./drivers
+	make -C ./drivers/
+
+assembly.a:
+	make -C ./asm/
 
 
-pkernel: $(OBJS) $(assembly_objects) drivers.a
+pkernel: $(OBJS) drivers.a assembly.a
 	@echo "Finish!"
 	@echo "You have pkernel"
-	ld $(OBJS) $(assembly_objects) ./drivers/drivers.a -T binary.ld -o pkernel
+	ld $(OBJS) ./asm/assembly.a ./drivers/drivers.a -T binary.ld -o pkernel
 
 install:
 	cp pkernel ../virtual_machine/disk/pkernel
@@ -36,6 +39,7 @@ clean:
 	rm -f pkernel
 	rm -f ../virtual_machine/disk/pkernel
 	make -C ./drivers/ clean
+	make -C ./asm/ clean
 	@echo "Clean"
 
 $(LOG).SILENT:
