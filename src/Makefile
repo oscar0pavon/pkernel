@@ -30,14 +30,12 @@ pkernel: $(OBJS) drivers.a assembly.a
 	ld $(OBJS) ./asm/assembly.a ./drivers/drivers.a -T binary.ld -o pkernel
 
 install:
-	cp pkernel ../virtual_machine/disk/pkernel
 	cp pkernel /boot/pkernel
 	@echo "Installed on /boot/pkernel"
 
 clean:
 	rm -f *.o
 	rm -f pkernel
-	rm -f ../virtual_machine/disk/pkernel
 	make -C ./drivers/ clean
 	make -C ./asm/ clean
 	@echo "Clean"
