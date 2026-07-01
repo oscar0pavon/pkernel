@@ -83,6 +83,9 @@ return_to_kernel:
     mov fs, cx
     mov gs, cx
     mov rax, rdi                  ; enter_user_mode() return value = exit code
+    sti                           ; SYS_EXIT skips sysret, so re-enable IRQs by hand
+                                  ; (FMASK cleared IF on syscall entry) or the kernel
+                                  ; would hlt forever with the timer masked
     ret
 
 section '.bss' writeable
