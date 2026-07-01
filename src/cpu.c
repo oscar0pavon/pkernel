@@ -1,10 +1,11 @@
 #include "cpu.h"
 #include "console.h"
+#include "acpi.h"
 
 int cpu_count = 0;
 uint8_t cpu_apic_ids[MAX_CPUS];
 
-void get_cpus(struct MADT *madt) {
+void get_cpus(struct MADT_t *madt) {
 
   uint8_t *p = (uint8_t *)madt + 44; // skip fixed MADT header (36 + 4 + 4)
   uint8_t *end = (uint8_t *)madt + madt->header.length;

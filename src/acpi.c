@@ -5,10 +5,11 @@
 #include "drivers/xhci.h"
 #include <stdint.h>
 
-struct FADT_t *FADT = NULL;
-struct XSDP_t *XSDP = NULL;
-struct DSDT_t *DSDT = NULL;
-struct XSDT_t *XSDT = NULL;
+struct FADT_t *FADT;
+struct XSDP_t *XSDP;
+struct DSDT_t *DSDT;
+struct XSDT_t *XSDT;
+struct MADT_t *MADT;
 
 
 PowerManager power_manager;
@@ -80,11 +81,6 @@ void parse_fadt() {
   }
 }
 
-void parse_madt(struct MADT *madt) {
-  
-  get_cpus(madt);
-  
-}
 
 void parse_xsdt() {
 
@@ -101,7 +97,8 @@ void parse_xsdt() {
       continue;
     }
     if (acpi_compare_signature(myheader->signature, "APIC")) {
-      parse_madt((struct MADT *)myheader);
+      MADT = (struct MADT_t *)myheader;
+      continue;
     }
 
     // PCI Express Extended Configuration Space (ECAM).
@@ -122,9 +119,7 @@ void parse_xsdt() {
 void setup_acpi(uint64_t xsdt_address){
 	XSDT = (struct XSDT_t*)xsdt_address;
 	parse_xsdt();
-  printf("xsdt parsed\n");
 
   acpi_get_poweroff();
-  printf("poweroff parsed\n");
   
 }

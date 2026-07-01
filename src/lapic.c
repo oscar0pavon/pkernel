@@ -9,11 +9,6 @@
 #define LAPIC_EOI lapic_reg(0x0B0)  // End of Interrupt
 
 void init_lapic(void) {
-  // Mask all legacy 8259 PIC interrupts so they don't fire on our vectors.
-  // This is required even when using MSI — a spurious PIC IRQ would hit
-  // vector 0x07 or 0x0F and fault since those entries are unhandled.
-  output_byte(0xFF, 0xA1);  // slave  PIC: mask all 8 lines
-  output_byte(0xFF, 0x21);  // master PIC: mask all 8 lines
 
   // Enable the xAPIC and route spurious interrupts to vector 0xFF.
   // Bit 8 of SVR is the software-enable bit; bits 7:0 are the spurious vector

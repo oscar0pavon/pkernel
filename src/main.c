@@ -15,6 +15,8 @@
 #include "sched.h"
 #include "smp.h"
 #include "shell.h"
+#include "input_output.h"
+#include "cpu.h"
 
 void hang(void) {
   while (1) { asm volatile("hlt"); }
@@ -31,6 +33,15 @@ void print_every_seconds(void){
   }
 }
 
+void disable_pic(){
+
+  // Mask all legacy 8259 PIC interrupts so they don't fire on our vectors.
+  // This is required even when using MSI — a spurious PIC IRQ would hit
+  // vector 0x07 or 0x0F and fault since those entries are unhandled.
+  output_byte(0xFF, 0xA1);  // slave  PIC: mask all 8 lines
+  output_byte(0xFF, 0x21);  // master PIC: mask all 8 lines
+}
+
 
 void main(BootInfo* boot_info){
 
@@ -43,15 +54,20 @@ void main(BootInfo* boot_info){
   setup_acpi(boot_info->xsdt_address);
 
   init_gdt();
+
   init_idt();
+
+  disable_pic();
+
+  init_lapic();
   
   pmm_init(boot_info);
 
   init_paging();
 
-  usermode_init();           // TSS + syscall/sysret MSRs for ring 3
+  get_cpus((struct MADT_t*)MADT);
+  smp_init();                // INIT-SIPI-SIPI the other CPUs into ap_main()
 
-  init_lapic();
   lapic_timer_init(100);     // calibrate + start periodic timer at 100 Hz
 
   sched_init();
@@ -59,12 +75,13 @@ void main(BootInfo* boot_info){
   set_idt_gate(0x20, (uint64_t)irq_sched_handler);
   set_idt_gate(0x21, (uint64_t)irq_xhci_handler);
 
-  smp_init();                // INIT-SIPI-SIPI the other CPUs into ap_main()
 
 
   setup_pci();
   xhci_enable_msi(0x21);     // configure PCI MSI + enable xHCI interrupter
 
+  usermode_init();           // TSS + syscall/sysret MSRs for ring 3
+  
   task_create("idle", idle_task);
 
   //task_create("counter", print_every_seconds);

@@ -9,7 +9,7 @@ extern int cpu_count;
 extern uint8_t cpu_apic_ids[MAX_CPUS];
 
 
-void get_cpus(struct MADT *madt);
+void get_cpus(struct MADT_t *madt);
 
 
 #endif
