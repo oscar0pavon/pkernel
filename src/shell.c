@@ -16,9 +16,16 @@
 
 
 #define LINE_MAX 256
+#define MAX_PARTS 64      // GPT slots we scan/display (enough for real disks)
 
 static char line[LINE_MAX];
 static int  line_len = 0;
+
+// Currently selected FAT32 volume. `ls`/`cat` operate on this when mounted;
+// otherwise they fall back to auto-scanning for the first FAT32 volume.
+static Fat32Volume mounted_vol;
+static int         mounted = 0;
+static char        mounted_name[24];   // e.g. "nvme0p2", for display
 
 static int str_eq(const char *a, const char *b) {
     while (*a && *b) if (*a++ != *b++) return 0;
@@ -35,6 +42,7 @@ static const char *arg_after(const char *line, const char *prefix) {
 
 static void cmd_help(void) {
     printf("commands: help  clear  mem  uptime  tasks  lspci  nvme  lsblk  parts  reboot  poweroff\n");
+    printf("          mount [<dev>p<N>]  umount   (select FAT32 volume, e.g. mount nvme0p2)\n");
     printf("          ls [path]  cat <path>   (read-only FAT32)\n");
     printf("          wtest <dev>   (non-destructive block write self-test)\n");
     printf("          user          (run the demo program in ring 3)\n");
@@ -97,10 +105,10 @@ static void cmd_lsblk(void) {
 
 static void cmd_parts(void) {
     if (block_device_count == 0) { printf("no block devices\n"); return; }
-    static GptPartition parts[16];
+    static GptPartition parts[MAX_PARTS];
     for (int i = 0; i < block_device_count; i++) {
         BlockDevice *d = &block_devices[i];
-        int n = gpt_scan(d, parts, 16);
+        int n = gpt_scan(d, parts, MAX_PARTS);
         if (n < 0) { printf("%s: no GPT\n", d->name); continue; }
         printf("%s: %d partition(s)\n", d->name, n);
         for (int j = 0; j < n; j++) {
@@ -118,14 +126,80 @@ static void cmd_parts(void) {
 }
 
 
-// Find and mount the first FAT32 volume across all block devices: for each
-// device, try every GPT partition; if the device has no GPT, try a bare FAT32
-// at LBA 0. Returns 0 and fills `vol` on success, -1 if none is found.
+// Split a spec like "nvme0p2" into its device name ("nvme0", written to
+// `namebuf`) and 1-based partition number (2, the return value). The suffix is
+// "p<N>" at the very end; if there is none (e.g. "nvme0") the whole spec is the
+// device name and 0 is returned, meaning "the bare device at LBA 0".
+static int parse_devpart(const char *spec, char *namebuf, int nbufsz) {
+    int len = 0;
+    while (spec[len]) len++;
+
+    int e = len, d = len;
+    while (d > 0 && spec[d - 1] >= '0' && spec[d - 1] <= '9') d--;
+
+    int partnum = 0;
+    if (d < e && d > 0 && spec[d - 1] == 'p') {   // has a "p<N>" suffix
+        for (int i = d; i < e; i++) partnum = partnum * 10 + (spec[i] - '0');
+        len = d - 1;                               // trim "p<N>" off the name
+    }
+
+    int i;
+    for (i = 0; i < len && i < nbufsz - 1; i++) namebuf[i] = spec[i];
+    namebuf[i] = '\0';
+    return partnum;
+}
+
+// Select the FAT32 volume that `ls`/`cat` will use. `arg` names a partition
+// the way `parts` prints it, e.g. "nvme0p2" (or a bare "nvme0" for a volume at
+// LBA 0). With no argument, report what is currently mounted.
+static void cmd_mount(const char *arg) {
+    if (!arg || arg[0] == '\0') {
+        if (mounted) printf("mounted: %s\n", mounted_name);
+        else         printf("nothing mounted (see `parts`, then `mount <dev>p<N>`)\n");
+        return;
+    }
+
+    char name[16];
+    int partnum = parse_devpart(arg, name, sizeof(name));
+    BlockDevice *d = block_get(name);
+    if (!d) { printf("mount: no such device '%s'\n", name); return; }
+
+    uint64_t lba = 0;
+    if (partnum > 0) {
+        static GptPartition parts[MAX_PARTS];
+        int n = gpt_scan(d, parts, MAX_PARTS);
+        if (n <= 0) { printf("mount: %s has no GPT\n", name); return; }
+        GptPartition *sel = 0;
+        for (int j = 0; j < n; j++)
+            if (parts[j].index + 1 == partnum) { sel = &parts[j]; break; }
+        if (!sel) { printf("mount: %s has no partition %d\n", name, partnum); return; }
+        lba = sel->first_lba;
+    }
+
+    Fat32Volume v;
+    if (fat32_mount(d, lba, &v) != 0) {
+        printf("mount: %s is not a FAT32 volume\n", arg);
+        return;
+    }
+
+    mounted_vol = v;
+    mounted = 1;
+    int i;
+    for (i = 0; arg[i] && i < (int)sizeof(mounted_name) - 1; i++) mounted_name[i] = arg[i];
+    mounted_name[i] = '\0';
+    printf("mounted %s (FAT32 at LBA %lu)\n", mounted_name, lba);
+}
+
+// Provide the FAT32 volume for `ls`/`cat`: the explicitly mounted one if any,
+// otherwise auto-scan every device (each GPT partition, or a bare FAT32 at LBA
+// 0) and take the first FAT32 volume found. Returns 0 and fills `vol`, or -1.
 static int fat_get(Fat32Volume *vol) {
-    static GptPartition parts[16];
+    if (mounted) { *vol = mounted_vol; return 0; }
+
+    static GptPartition parts[MAX_PARTS];
     for (int i = 0; i < block_device_count; i++) {
         BlockDevice *d = &block_devices[i];
-        int n = gpt_scan(d, parts, 16);
+        int n = gpt_scan(d, parts, MAX_PARTS);
         if (n > 0) {
             for (int j = 0; j < n; j++)
                 if (fat32_mount(d, parts[j].first_lba, vol) == 0) return 0;
@@ -145,7 +219,7 @@ static int ls_cb(const Fat32DirEntry *e, void *ctx) {
 
 static void cmd_ls(const char *path) {
     Fat32Volume vol;
-    if (fat_get(&vol) != 0) { printf("ls: no FAT32 volume found\n"); return; }
+    if (fat_get(&vol) != 0) { printf("ls: no FAT32 volume (try `parts` then `mount <dev>p<N>`)\n"); return; }
     if (!path || path[0] == '\0') path = "/";
 
     Fat32DirEntry e;
@@ -160,7 +234,7 @@ static void cmd_ls(const char *path) {
 static void cmd_cat(const char *path) {
     if (!path || path[0] == '\0') { printf("usage: cat <path>\n"); return; }
     Fat32Volume vol;
-    if (fat_get(&vol) != 0) { printf("cat: no FAT32 volume found\n"); return; }
+    if (fat_get(&vol) != 0) { printf("cat: no FAT32 volume (try `parts` then `mount <dev>p<N>`)\n"); return; }
 
     Fat32DirEntry e;
     if (fat32_stat(&vol, path, &e) != 0)   { printf("cat: %s: not found\n", path); return; }
@@ -302,6 +376,8 @@ static void dispatch(void) {
     else if (str_eq(line, "nvme"))   cmd_nvme();
     else if (str_eq(line, "lsblk"))  cmd_lsblk();
     else if (str_eq(line, "parts"))  cmd_parts();
+    else if (str_eq(line, "umount")) { mounted = 0; printf("unmounted\n"); }
+    else if (arg_after(line, "mount")) cmd_mount(arg_after(line, "mount"));
     else if (arg_after(line, "ls"))  cmd_ls(arg_after(line, "ls"));
     else if (arg_after(line, "cat")) cmd_cat(arg_after(line, "cat"));
     else if (arg_after(line, "wtest")) cmd_wtest(arg_after(line, "wtest"));
